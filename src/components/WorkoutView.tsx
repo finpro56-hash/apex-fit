@@ -5,9 +5,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { WorkoutSession, WorkoutExercise, WorkoutPlan } from '../types';
-import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame } from 'lucide-react';
+import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame, Edit3, AlertCircle } from 'lucide-react';
 import { db, auth } from '../firebase/config';
-import { collection, addDoc, deleteDoc, doc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
 
 interface WorkoutViewProps {
@@ -82,16 +82,13 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     }
   };
 
-  // Filter sessions for selectedDate
-  const daySessions = sessions.filter((s) => s.date === selectedDate);
-
   const startWorkout = (title: string, defaultExercises: string[]) => {
     const exercises: WorkoutExercise[] = defaultExercises.map((name, idx) => ({
       id: `ex_${idx}_${Date.now()}`,
       name,
       sets: [
-        { setNumber: 1, weightKg: 60, reps: 10, completed: false },
-        { setNumber: 2, weightKg: 60, reps: 10, completed: false },
+        { setNumber: 1, weightKg: 60, reps: 10, completed: true },
+        { setNumber: 2, weightKg: 60, reps: 10, completed: true },
         { setNumber: 3, weightKg: 60, reps: 8, completed: false },
       ],
     }));
@@ -134,14 +131,25 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     try {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        await addDoc(collection(db, 'users', uid, 'workoutSessions'), {
-          planTitle: activeSession.planTitle,
-          date: selectedDate,
-          exercises: activeSession.exercises,
-          completed: true,
-          durationMinutes: activeSession.durationMinutes,
-          createdAt: serverTimestamp(),
-        });
+        if (activeSession.id) {
+          await setDoc(doc(db, 'users', uid, 'workoutSessions', activeSession.id), {
+            planTitle: activeSession.planTitle,
+            date: selectedDate,
+            exercises: activeSession.exercises,
+            completed: true,
+            durationMinutes: activeSession.durationMinutes,
+            createdAt: activeSession.createdAt || serverTimestamp(),
+          }, { merge: true });
+        } else {
+          await addDoc(collection(db, 'users', uid, 'workoutSessions'), {
+            planTitle: activeSession.planTitle,
+            date: selectedDate,
+            exercises: activeSession.exercises,
+            completed: true,
+            durationMinutes: activeSession.durationMinutes,
+            createdAt: serverTimestamp(),
+          });
+        }
         setActiveSession(null);
         onRefresh();
       }
@@ -166,11 +174,14 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
   };
 
   if (activeSession) {
+    const isEditing = Boolean(activeSession.id);
     return (
       <div className="space-y-6 pb-24">
         <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-2xl p-4">
           <div>
-            <span className="text-xs uppercase font-semibold text-emerald-400">Active Workout ({selectedDate})</span>
+            <span className="text-xs uppercase font-semibold text-emerald-400">
+              {isEditing ? 'Edit Workout Session' : 'Active Workout'} ({selectedDate})
+            </span>
             <h2 className="text-xl font-extrabold text-white">{activeSession.planTitle}</h2>
           </div>
           <button
@@ -182,59 +193,71 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
         </div>
 
         <div className="space-y-4">
-          {activeSession.exercises.map((ex) => (
-            <div key={ex.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white">{ex.name}</h3>
-                <button
-                  onClick={() => addSetToExercise(ex.id)}
-                  className="text-xs text-emerald-400 font-semibold hover:underline"
-                >
-                  + Add Set
-                </button>
-              </div>
+          {activeSession.exercises.map((ex) => {
+            const completedSetsCount = ex.sets.filter((s) => s.completed).length;
+            const totalSetsCount = ex.sets.length;
+            const isCompleted = completedSetsCount === totalSetsCount;
+            const isSkipped = completedSetsCount === 0;
 
-              <div className="space-y-2">
-                <div className="grid grid-cols-12 gap-2 text-[10px] text-slate-400 uppercase font-semibold px-2">
-                  <span className="col-span-2">Set</span>
-                  <span className="col-span-4">Weight (kg)</span>
-                  <span className="col-span-4">Reps</span>
-                  <span className="col-span-2 text-center">Done</span>
+            return (
+              <div key={ex.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white">{ex.name}</h3>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${isCompleted ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : isSkipped ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-blue-950 text-blue-300 border border-blue-800'}`}>
+                      {isCompleted ? 'Completed' : isSkipped ? 'Skipped' : `${completedSetsCount}/${totalSetsCount} Sets`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => addSetToExercise(ex.id)}
+                    className="text-xs text-emerald-400 font-semibold hover:underline"
+                  >
+                    + Add Set
+                  </button>
                 </div>
 
-                {ex.sets.map((set, sIdx) => (
-                  <div key={sIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-950/60 p-2 rounded-xl border border-slate-800/80">
-                    <span className="col-span-2 text-xs font-bold text-slate-400 text-center">{set.setNumber}</span>
-                    <div className="col-span-4">
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={set.weightKg}
-                        onChange={(e) => updateSet(ex.id, sIdx, 'weightKg', parseFloat(e.target.value) || 0)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-emerald-500 tabular-nums"
-                      />
-                    </div>
-                    <div className="col-span-4">
-                      <input
-                        type="number"
-                        value={set.reps}
-                        onChange={(e) => updateSet(ex.id, sIdx, 'reps', parseInt(e.target.value) || 0)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-emerald-500 tabular-nums"
-                      />
-                    </div>
-                    <div className="col-span-2 flex justify-center">
-                      <input
-                        type="checkbox"
-                        checked={set.completed || false}
-                        onChange={(e) => updateSet(ex.id, sIdx, 'completed', e.target.checked)}
-                        className="w-5 h-5 rounded accent-emerald-600 cursor-pointer"
-                      />
-                    </div>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 gap-2 text-[10px] text-slate-400 uppercase font-semibold px-2">
+                    <span className="col-span-2">Set</span>
+                    <span className="col-span-4">Weight (kg)</span>
+                    <span className="col-span-4">Reps</span>
+                    <span className="col-span-2 text-center">Done ✔️</span>
                   </div>
-                ))}
+
+                  {ex.sets.map((set, sIdx) => (
+                    <div key={sIdx} className="grid grid-cols-12 gap-2 items-center bg-slate-950/60 p-2 rounded-xl border border-slate-800/85">
+                      <span className="col-span-2 text-xs font-bold text-slate-400 text-center">{set.setNumber}</span>
+                      <div className="col-span-4">
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={set.weightKg}
+                          onChange={(e) => updateSet(ex.id, sIdx, 'weightKg', parseFloat(e.target.value) || 0)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-emerald-500 tabular-nums"
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <input
+                          type="number"
+                          value={set.reps}
+                          onChange={(e) => updateSet(ex.id, sIdx, 'reps', parseInt(e.target.value) || 0)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:border-emerald-500 tabular-nums"
+                        />
+                      </div>
+                      <div className="col-span-2 flex justify-center">
+                        <input
+                          type="checkbox"
+                          checked={set.completed || false}
+                          onChange={(e) => updateSet(ex.id, sIdx, 'completed', e.target.checked)}
+                          className="w-5 h-5 rounded accent-emerald-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <button
@@ -243,17 +266,13 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
           className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
         >
           <CheckCircle className="w-5 h-5" />
-          {submitting ? 'Saving Session...' : 'Finish & Complete Workout'}
+          {submitting ? 'Saving...' : isEditing ? 'Update Workout Session' : 'Finish & Complete Workout'}
         </button>
       </div>
     );
   }
 
-  const defaultPlans = [
-    { title: 'Push Day', desc: 'Chest, Shoulders & Triceps', exercises: ['Bench Press', 'Incline Dumbbell Press', 'Shoulder Press', 'Tricep Pushdown'] },
-    { title: 'Pull Day', desc: 'Back & Biceps', exercises: ['Deadlift', 'Lat Pulldown', 'Barbell Row', 'Bicep Curl'] },
-    { title: 'Leg Day', desc: 'Quads, Hamstrings & Calves', exercises: ['Barbell Squat', 'Romanian Deadlift', 'Leg Press', 'Calf Raise'] },
-  ];
+  const daySessions = sessions.filter((s) => s.date === selectedDate);
 
   return (
     <div className="space-y-6 pb-24">
@@ -261,8 +280,8 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-extrabold text-white">Workout Structures</h2>
-          <p className="text-xs text-slate-400">Design daily routines (Chest Day, Leg Day, Custom) and start workouts.</p>
+          <h2 className="text-2xl font-extrabold text-white">Custom Workout Routines</h2>
+          <p className="text-xs text-slate-400">Build your custom routines and track progress for {selectedDate}.</p>
         </div>
         <button
           onClick={() => setIsPlanModalOpen(true)}
@@ -272,102 +291,95 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
         </button>
       </div>
 
-      {/* Workout Routines / Plans */}
+      {/* Custom Workout Routines Only */}
       <div className="space-y-4">
-        <h3 className="text-base font-bold text-white">Available Workout Routines</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {defaultPlans.map((p, idx) => (
-            <div key={idx} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-base font-bold text-white">{p.title}</h4>
-                  <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">Preset</span>
-                </div>
-                <p className="text-xs text-slate-400 mb-3">{p.desc}</p>
-                <div className="flex flex-wrap gap-1 mb-4">
-                  {p.exercises.map((ex, eIdx) => (
-                    <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2 py-1 rounded-lg">
-                      {ex}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <button
-                onClick={() => startWorkout(p.title, p.exercises)}
-                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-              </button>
-            </div>
-          ))}
+        <h3 className="text-base font-bold text-white">Your Workout Routines</h3>
 
-          {workoutPlans.map((plan) => (
-            <div key={plan.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-base font-bold text-white">{plan.title}</h4>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-md">Custom</span>
-                    <button
-                      onClick={() => handleDeletePlan(plan.id)}
-                      className="text-slate-500 hover:text-red-400"
-                      title="Delete routine"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-400 mb-3">{plan.description || 'Custom workout routine'}</p>
-                <div className="flex flex-wrap gap-1 mb-4">
-                  {plan.exercises.map((ex, eIdx) => (
-                    <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2 py-1 rounded-lg">
-                      {ex}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <button
-                onClick={() => startWorkout(plan.title, plan.exercises)}
-                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Workout History for Selected Date */}
-      <div className="space-y-3 pt-4 border-t border-slate-800">
-        <h3 className="text-base font-bold text-white">Workouts Completed on {selectedDate}</h3>
-        {daySessions.length === 0 ? (
-          <div className="text-center py-10 bg-slate-900 border border-slate-800 rounded-3xl p-6">
-            <Dumbbell className="w-10 h-10 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-300">No workout sessions logged for this date</p>
-            <p className="text-xs text-slate-500 mt-1">Start a workout routine above.</p>
+        {workoutPlans.length === 0 ? (
+          <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <Dumbbell className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-slate-300">No custom workout routines created yet</p>
+            <p className="text-xs text-slate-500 mt-1 mb-4">Tap Create Routine to design your custom workout structures (e.g. Chest Day, Leg Day).</p>
+            <button
+              onClick={() => setIsPlanModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-xs shadow-lg shadow-emerald-950 hover:bg-emerald-500"
+            >
+              <Plus className="w-4 h-4" /> Create First Routine
+            </button>
           </div>
         ) : (
-          daySessions.map((session) => (
-            <div key={session.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5" />
+          <div className="grid grid-cols-1 gap-3">
+            {workoutPlans.map((plan) => {
+              const loggedSession = daySessions.find((s) => s.planTitle.toLowerCase() === plan.title.toLowerCase());
+              const isDone = Boolean(loggedSession);
+
+              return (
+                <div
+                  key={plan.id}
+                  className={`bg-slate-900 border rounded-2xl p-5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+                    isDone ? 'border-emerald-500/50 bg-slate-900/90' : 'border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${
+                        isDone ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {isDone ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-bold text-white">{plan.title}</h4>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+                            isDone ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
+                          }`}>
+                            {isDone ? '✔️ Done' : '⏳ Pending'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400">{plan.description || 'Custom routine'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {plan.exercises.map((ex, eIdx) => (
+                        <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2.5 py-1 rounded-lg">
+                          {ex}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isDone && loggedSession ? (
+                      <button
+                        onClick={() => setActiveSession(loggedSession)}
+                        className="h-10 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold flex items-center gap-2 border border-emerald-500/30 transition-all"
+                      >
+                        <Edit3 className="w-4 h-4" /> Edit Workout
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => startWorkout(plan.title, plan.exercises)}
+                        className="h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
+                      </button>
+                    )}
+
+                    {plan.id && (
+                      <button
+                        onClick={() => handleDeletePlan(plan.id)}
+                        className="p-2.5 rounded-xl bg-slate-800 text-slate-500 hover:text-red-400 transition-colors"
+                        title="Delete routine"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">{session.planTitle}</h4>
-                  <p className="text-xs text-slate-400">
-                    {session.date} &bull; {session.exercises?.length || 0} exercises &bull; {session.durationMinutes || 45} mins
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => handleDeleteSession(session.id)}
-                className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-slate-800 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -384,7 +396,7 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
 
             <form onSubmit={handleCreatePlan} className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Routine Name (e.g. Chest Day, Leg Day)</label>
+                <label className="text-xs text-slate-400 mb-1 block">Routine Name (e.g. Leg Day, Chest & Triceps)</label>
                 <input
                   type="text"
                   placeholder="e.g. Chest & Biceps"
@@ -413,7 +425,7 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
                   placeholder="e.g. Barbell Bench Press, Incline Dumbbell Fly, Cable Crossover"
                   value={exerciseInput}
                   onChange={(e) => setExerciseInput(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 p-3 text-sm text-white focus:outline-none focus:border-emerald-500 rounded-xl"
                   required
                 />
               </div>
