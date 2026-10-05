@@ -8,18 +8,21 @@ import { WorkoutSession, WorkoutExercise } from '../types';
 import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { DateNavigator } from './DateNavigator';
 
 interface WorkoutViewProps {
   sessions: WorkoutSession[];
+  selectedDate: string;
+  onChangeDate: (date: string) => void;
   onRefresh: () => void;
 }
 
-export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
+export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }: WorkoutViewProps) {
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
-  const [isNewPlanOpen, setIsNewPlanOpen] = useState(false);
-  const [planTitle, setPlanTitle] = useState('');
-  const [exerciseList, setExerciseList] = useState<string>('Bench Press\nIncline Dumbbell Press\nShoulder Press');
   const [submitting, setSubmitting] = useState(false);
+
+  // Filter sessions for selectedDate
+  const daySessions = sessions.filter((s) => s.date === selectedDate);
 
   const startWorkout = (title: string, defaultExercises: string[]) => {
     const exercises: WorkoutExercise[] = defaultExercises.map((name, idx) => ({
@@ -34,7 +37,7 @@ export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
 
     setActiveSession({
       planTitle: title,
-      date: new Date().toISOString().split('T')[0],
+      date: selectedDate,
       exercises,
       completed: false,
       durationMinutes: 45,
@@ -72,7 +75,7 @@ export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
       if (uid) {
         await addDoc(collection(db, 'users', uid, 'workoutSessions'), {
           planTitle: activeSession.planTitle,
-          date: activeSession.date,
+          date: selectedDate,
           exercises: activeSession.exercises,
           completed: true,
           durationMinutes: activeSession.durationMinutes,
@@ -106,7 +109,7 @@ export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
       <div className="space-y-6 pb-24">
         <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-2xl p-4">
           <div>
-            <span className="text-xs uppercase font-semibold text-emerald-400">Active Workout</span>
+            <span className="text-xs uppercase font-semibold text-emerald-400">Active Workout ({selectedDate})</span>
             <h2 className="text-xl font-extrabold text-white">{activeSession.planTitle}</h2>
           </div>
           <button
@@ -187,10 +190,12 @@ export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
 
   return (
     <div className="space-y-6 pb-24">
+      <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-extrabold text-white">Workout Tracker</h2>
-          <p className="text-xs text-slate-400">Start a workout session or browse training plans.</p>
+          <p className="text-xs text-slate-400">Workouts for {selectedDate}.</p>
         </div>
       </div>
 
@@ -247,15 +252,15 @@ export function WorkoutView({ sessions, onRefresh }: WorkoutViewProps) {
 
       {/* Workout History */}
       <div className="space-y-3">
-        <h3 className="text-base font-bold text-white">Workout History</h3>
-        {sessions.length === 0 ? (
+        <h3 className="text-base font-bold text-white">Workouts on {selectedDate}</h3>
+        {daySessions.length === 0 ? (
           <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl p-6">
             <Dumbbell className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-sm font-semibold text-slate-300">No workouts completed yet</p>
-            <p className="text-xs text-slate-500 mt-1">Start a workout session above to log sets and reps.</p>
+            <p className="text-sm font-semibold text-slate-300">No workouts logged for this date</p>
+            <p className="text-xs text-slate-500 mt-1">Start a workout session above for {selectedDate}.</p>
           </div>
         ) : (
-          sessions.map((session) => (
+          daySessions.map((session) => (
             <div key={session.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center">

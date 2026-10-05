@@ -6,21 +6,39 @@
 import React from 'react';
 import { FoodLogItem, UserGoals } from '../types';
 import { Flame, Plus, Camera, Mic, ChevronRight, Apple } from 'lucide-react';
+import { DateNavigator } from './DateNavigator';
 
 interface TodayViewProps {
   foodLogs: FoodLogItem[];
   goals: UserGoals;
+  selectedDate: string;
+  onChangeDate: (date: string) => void;
   onNavigateTab: (tab: 'food' | 'ai') => void;
   onOpenScan: () => void;
   onOpenVoice: () => void;
   onOpenManual: () => void;
 }
 
-export function TodayView({ foodLogs, goals, onNavigateTab, onOpenScan, onOpenVoice, onOpenManual }: TodayViewProps) {
-  const totalCalories = foodLogs.reduce((acc, item) => acc + (item.calories || 0), 0);
-  const totalProtein = foodLogs.reduce((acc, item) => acc + (item.proteinG || 0), 0);
-  const totalCarbs = foodLogs.reduce((acc, item) => acc + (item.carbsG || 0), 0);
-  const totalFat = foodLogs.reduce((acc, item) => acc + (item.fatG || 0), 0);
+export function TodayView({
+  foodLogs,
+  goals,
+  selectedDate,
+  onChangeDate,
+  onNavigateTab,
+  onOpenScan,
+  onOpenVoice,
+  onOpenManual,
+}: TodayViewProps) {
+  // Filter food logs for selectedDate
+  const dayFoodLogs = foodLogs.filter((item) => {
+    const itemDate = item.date || (item.createdAt && typeof item.createdAt.toDate === 'function' ? item.createdAt.toDate().toISOString().split('T')[0] : selectedDate);
+    return itemDate === selectedDate;
+  });
+
+  const totalCalories = dayFoodLogs.reduce((acc, item) => acc + (item.calories || 0), 0);
+  const totalProtein = dayFoodLogs.reduce((acc, item) => acc + (item.proteinG || 0), 0);
+  const totalCarbs = dayFoodLogs.reduce((acc, item) => acc + (item.carbsG || 0), 0);
+  const totalFat = dayFoodLogs.reduce((acc, item) => acc + (item.fatG || 0), 0);
 
   const remainingCalories = Math.max(0, goals.calorieTarget - totalCalories);
   const caloriePercent = Math.min(100, Math.round((totalCalories / (goals.calorieTarget || 2000)) * 100));
@@ -29,13 +47,15 @@ export function TodayView({ foodLogs, goals, onNavigateTab, onOpenScan, onOpenVo
 
   return (
     <div className="space-y-6 pb-24">
+      <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
+
       {/* Hero Calorie Card */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         
         <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Today's Energy Balance</p>
+            <p className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Energy Balance</p>
             <h2 className="text-2xl font-extrabold text-white">Daily Dashboard</h2>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold tabular-nums">
@@ -140,7 +160,7 @@ export function TodayView({ foodLogs, goals, onNavigateTab, onOpenScan, onOpenVo
       {/* Meals Breakdown */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-white">Today's Meals</h3>
+          <h3 className="text-base font-bold text-white">Meals on Selected Date</h3>
           <button
             onClick={() => onNavigateTab('food')}
             className="text-xs font-medium text-emerald-400 flex items-center gap-1 hover:underline"
@@ -151,8 +171,8 @@ export function TodayView({ foodLogs, goals, onNavigateTab, onOpenScan, onOpenVo
 
         <div className="space-y-3">
           {meals.map((mealType) => {
-            const items = foodLogs.filter((f) => f.mealType === mealType);
-            const mealCals = items.reduce((sum, i) => sum + i.calories, 1);
+            const items = dayFoodLogs.filter((f) => f.mealType === mealType);
+            const mealCals = items.reduce((sum, i) => sum + i.calories, 0);
             return (
               <div key={mealType} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">

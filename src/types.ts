@@ -19,6 +19,7 @@ export interface UserGoals {
 
 export interface FoodLogItem {
   id?: string;
+  date?: string;
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
   foodName: string;
   quantity?: number;

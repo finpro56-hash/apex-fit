@@ -8,9 +8,12 @@ import { FoodLogItem } from '../types';
 import { Plus, Camera, Mic, Trash2, Apple, Sparkles, Check, X, Loader2 } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { DateNavigator } from './DateNavigator';
 
 interface FoodViewProps {
   foodLogs: FoodLogItem[];
+  selectedDate: string;
+  onChangeDate: (date: string) => void;
   onRefresh: () => void;
   isScanOpen: boolean;
   setIsScanOpen: (open: boolean) => void;
@@ -18,7 +21,16 @@ interface FoodViewProps {
   setIsVoiceOpen: (open: boolean) => void;
 }
 
-export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoiceOpen, setIsVoiceOpen }: FoodViewProps) {
+export function FoodView({
+  foodLogs,
+  selectedDate,
+  onChangeDate,
+  onRefresh,
+  isScanOpen,
+  setIsScanOpen,
+  isVoiceOpen,
+  setIsVoiceOpen,
+}: FoodViewProps) {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [mealType, setMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>('lunch');
   const [foodName, setFoodName] = useState('');
@@ -34,6 +46,12 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
   const [analyzing, setAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [textInput, setTextInput] = useState('');
+
+  // Filter food logs for selectedDate
+  const dayFoodLogs = foodLogs.filter((item) => {
+    const itemDate = item.date || (item.createdAt && typeof item.createdAt.toDate === 'function' ? item.createdAt.toDate().toISOString().split('T')[0] : selectedDate);
+    return itemDate === selectedDate;
+  });
 
   const handleAutoEstimate = async () => {
     if (!foodName.trim()) return;
@@ -69,6 +87,7 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
       const uid = auth.currentUser?.uid;
       if (uid) {
         await addDoc(collection(db, 'users', uid, 'foodLogs'), {
+          date: selectedDate,
           mealType,
           foodName: foodName.trim(),
           portion: portion.trim(),
@@ -170,6 +189,7 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
       if (uid) {
         for (const item of aiResult.foods) {
           await addDoc(collection(db, 'users', uid, 'foodLogs'), {
+            date: selectedDate,
             mealType: (aiResult.meal || 'lunch').toLowerCase(),
             foodName: item.name,
             portion: item.estimated_portion || '1 serving',
@@ -199,10 +219,12 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
 
   return (
     <div className="space-y-6 pb-24">
+      <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-extrabold text-white">Food Tracker</h2>
-          <p className="text-xs text-slate-400">Log meals manually, scan food photos, or describe via voice/text.</p>
+          <p className="text-xs text-slate-400">Log meals for selected date.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -228,14 +250,14 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
 
       {/* Logged Food List */}
       <div className="space-y-3">
-        {foodLogs.length === 0 ? (
+        {dayFoodLogs.length === 0 ? (
           <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl p-6">
             <Apple className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-sm font-semibold text-slate-300">No food logged yet today</p>
-            <p className="text-xs text-slate-500 mt-1">Tap Add, Scan, or Tell AI to log your first meal.</p>
+            <p className="text-sm font-semibold text-slate-300">No food logged for this date</p>
+            <p className="text-xs text-slate-500 mt-1">Tap Add, Scan, or Tell AI to log meals for {selectedDate}.</p>
           </div>
         ) : (
-          foodLogs.map((item) => (
+          dayFoodLogs.map((item) => (
             <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-emerald-400 font-bold capitalize">
@@ -277,7 +299,7 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-slate-100 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">Add Food Manually</h3>
+              <h3 className="text-lg font-bold">Add Food for {selectedDate}</h3>
               <button onClick={() => setIsManualOpen(false)} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
@@ -398,7 +420,7 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 text-blue-400">
                 <Camera className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-white">Gemini Food Photo Scan</h3>
+                <h3 className="text-lg font-bold text-white">Gemini Food Photo Scan ({selectedDate})</h3>
               </div>
               <button onClick={() => { setIsScanOpen(false); setAiResult(null); }} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
@@ -478,7 +500,7 @@ export function FoodView({ foodLogs, onRefresh, isScanOpen, setIsScanOpen, isVoi
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 text-purple-400">
                 <Mic className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-white">Gemini Voice / Text Logging</h3>
+                <h3 className="text-lg font-bold text-white">Gemini Voice / Text Logging ({selectedDate})</h3>
               </div>
               <button onClick={() => { setIsVoiceOpen(false); setAiResult(null); setTextInput(''); }} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />

@@ -17,10 +17,18 @@ import { AiCoachView } from './components/AiCoachView';
 import { ProfileModal } from './components/ProfileModal';
 import { Loader2 } from 'lucide-react';
 
+function getLocalDateString(d = new Date()) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'today' | 'food' | 'workout' | 'progress' | 'ai'>('today');
+  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString());
 
   // Data states
   const [profile, setProfile] = useState<UserProfile>({
@@ -134,6 +142,8 @@ export default function App() {
               <TodayView
                 foodLogs={foodLogs}
                 goals={goals}
+                selectedDate={selectedDate}
+                onChangeDate={setSelectedDate}
                 onNavigateTab={setActiveTab}
                 onOpenScan={() => { setActiveTab('food'); setIsScanOpen(true); }}
                 onOpenVoice={() => { setActiveTab('food'); setIsVoiceOpen(true); }}
@@ -143,6 +153,8 @@ export default function App() {
             {activeTab === 'food' && (
               <FoodView
                 foodLogs={foodLogs}
+                selectedDate={selectedDate}
+                onChangeDate={setSelectedDate}
                 onRefresh={handleRefreshData}
                 isScanOpen={isScanOpen}
                 setIsScanOpen={setIsScanOpen}
@@ -153,6 +165,8 @@ export default function App() {
             {activeTab === 'workout' && (
               <WorkoutView
                 sessions={sessions}
+                selectedDate={selectedDate}
+                onChangeDate={setSelectedDate}
                 onRefresh={handleRefreshData}
               />
             )}
