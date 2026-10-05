@@ -207,6 +207,54 @@ async function startServer() {
     }
   });
 
+  // API Endpoint: Calculate Maintenance Calories & Recommended Macros with AI
+  app.post('/api/calculate-nutrition-goals', async (req, res) => {
+    try {
+      const { weightKg, heightCm, age, activityLevel, calorieTarget } = req.body;
+      if (!weightKg || !heightCm || !age) {
+        return res.status(400).json({ error: 'Missing required body metrics' });
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' });
+      }
+
+      const promptText = calorieTarget
+        ? `Given a user with Weight: ${weightKg}kg, Height: ${heightCm}cm, Age: ${age}, Activity Level: ${activityLevel || 'moderate'}, and a target daily intake of ${calorieTarget} kcal:
+Calculate their estimated daily maintenance calories (TDEE) and the optimal macro breakdown (proteinTarget in grams, carbTarget in grams, fatTarget in grams) for balanced fitness and muscle retention. Return valid JSON.`
+        : `Given a user with Weight: ${weightKg}kg, Height: ${heightCm}cm, Age: ${age}, Activity Level: ${activityLevel || 'moderate'}:
+Calculate their estimated daily maintenance calories (TDEE) and recommended baseline macros (proteinTarget in grams, carbTarget in grams, fatTarget in grams). Return valid JSON.`;
+
+      const response = await generateWithFallback(
+        [{ text: promptText }],
+        {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              maintenanceCalories: { type: Type.NUMBER },
+              proteinTarget: { type: Type.NUMBER },
+              carbTarget: { type: Type.NUMBER },
+              fatTarget: { type: Type.NUMBER },
+            },
+            required: ['maintenanceCalories', 'proteinTarget', 'carbTarget', 'fatTarget'],
+          },
+        }
+      );
+
+      const textResult = response.text;
+      if (!textResult) {
+        throw new Error('No response from Gemini');
+      }
+
+      const parsed = JSON.parse(textResult);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error('Error calculating nutrition goals:', error);
+      res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  });
+
   // API Endpoint: AI Fitness Coach Chat
   app.post('/api/ai-chat', async (req, res) => {
     try {

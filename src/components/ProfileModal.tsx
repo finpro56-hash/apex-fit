@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { UserGoals, UserProfile } from '../types';
-import { X, Save, User, Flame } from 'lucide-react';
+import { X, Save, User, Flame, Sparkles, Loader2 } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { doc, setDoc } from 'firebase/firestore';
 
@@ -20,9 +20,60 @@ interface ProfileModalProps {
 export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: ProfileModalProps) {
   const [formData, setFormData] = useState({ ...profile });
   const [goalData, setGoalData] = useState({ ...goals });
+  const [maintenanceCals, setMaintenanceCals] = useState<number | null>(null);
+  const [calculatingCals, setCalculatingCals] = useState(false);
+  const [calculatingMacros, setCalculatingMacros] = useState(false);
   const [saving, setSaving] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleCalculateMaintenance = async () => {
+    if (!formData.weightKg || !formData.heightCm || !formData.age) return;
+    setCalculatingCals(true);
+    try {
+      const res = await fetch('/api/calculate-nutrition-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData }),
+      });
+      const data = await res.json();
+      if (res.ok && data.maintenanceCalories) {
+        setMaintenanceCals(Math.round(data.maintenanceCalories));
+        if (!goalData.calorieTarget) {
+          setGoalData((prev) => ({ ...prev, calorieTarget: Math.round(data.maintenanceCalories) }));
+        }
+      }
+    } catch (err) {
+      console.error('Error calculating maintenance calories:', err);
+    } finally {
+      setCalculatingCals(false);
+    }
+  };
+
+  const handleCalculateMacros = async () => {
+    if (!goalData.calorieTarget) return;
+    setCalculatingMacros(true);
+    try {
+      const res = await fetch('/api/calculate-nutrition-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, calorieTarget: goalData.calorieTarget }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGoalData((prev) => ({
+          ...prev,
+          proteinTarget: Math.round(data.proteinTarget || prev.proteinTarget),
+          carbTarget: Math.round(data.carbTarget || prev.carbTarget),
+          fatTarget: Math.round(data.fatTarget || prev.fatTarget),
+        }));
+      }
+    } catch (err) {
+      console.error('Error calculating macros:', err);
+    } finally {
+      setCalculatingMacros(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +114,8 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Body Metrics Section */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Body Metrics</p>
             <div className="grid grid-cols-2 gap-3">
@@ -74,7 +126,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                   step="0.1"
                   value={formData.weightKg}
                   onChange={(e) => setFormData({ ...formData, weightKg: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
               <div>
@@ -83,7 +135,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                   type="number"
                   value={formData.heightCm}
                   onChange={(e) => setFormData({ ...formData, heightCm: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
             </div>
@@ -94,7 +146,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                   type="number"
                   value={formData.age}
                   onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
               <div>
@@ -111,29 +163,58 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 </select>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleCalculateMaintenance}
+              disabled={calculatingCals}
+              className="w-full h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-semibold text-xs flex items-center justify-center gap-2 hover:bg-emerald-600/30 transition-all disabled:opacity-50 mt-2"
+            >
+              {calculatingCals ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {calculatingCals ? 'Calculating...' : '✨ Calculate Maintenance Calories with Gemini'}
+            </button>
+
+            {maintenanceCals && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-800/80 rounded-2xl flex items-center justify-between text-xs text-emerald-300">
+                <span className="font-medium">Estimated Maintenance Calories:</span>
+                <span className="font-extrabold text-sm text-white tabular-nums">{maintenanceCals} kcal/day</span>
+              </div>
+            )}
           </div>
 
-          <div className="space-y-3 pt-3 border-t border-slate-800">
+          {/* Nutrition & Calorie Targets Section */}
+          <div className="space-y-3 pt-4 border-t border-slate-800">
             <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
               <Flame className="w-4 h-4" /> Nutrition & Calorie Targets
             </p>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Daily Calorie Target (kcal)</label>
+              <label className="text-xs text-slate-400 mb-1 block">Target Daily Calories (kcal)</label>
               <input
                 type="number"
                 value={goalData.calorieTarget}
                 onChange={(e) => setGoalData({ ...goalData, calorieTarget: parseInt(e.target.value) || 0 })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+
+            <button
+              type="button"
+              onClick={handleCalculateMacros}
+              disabled={!goalData.calorieTarget || calculatingMacros}
+              className="w-full h-10 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-400 font-semibold text-xs flex items-center justify-center gap-2 hover:bg-purple-600/30 transition-all disabled:opacity-50"
+            >
+              {calculatingMacros ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {calculatingMacros ? 'Calculating Macros...' : '✨ Calculate Macros from Target Calorie with Gemini'}
+            </button>
+
+            <div className="grid grid-cols-3 gap-3 pt-1">
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Protein (g)</label>
                 <input
                   type="number"
                   value={goalData.proteinTarget}
                   onChange={(e) => setGoalData({ ...goalData, proteinTarget: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
               <div>
@@ -142,7 +223,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                   type="number"
                   value={goalData.carbTarget}
                   onChange={(e) => setGoalData({ ...goalData, carbTarget: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
               <div>
@@ -151,7 +232,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                   type="number"
                   value={goalData.fatTarget}
                   onChange={(e) => setGoalData({ ...goalData, fatTarget: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
                 />
               </div>
             </div>
