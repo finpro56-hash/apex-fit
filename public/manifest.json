@@ -1,0 +1,16 @@
+{
+  "name": "Apex Fit - AI Fitness & Diet Tracker",
+  "short_name": "ApexFit",
+  "description": "Mobile-first PWA fitness and diet tracker with multimodal food photo analysis and intelligent Gemini coaching.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "https://www.gstatic.com/mobilesdk/250721_mobilesdk/mono_firebase_dark.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
