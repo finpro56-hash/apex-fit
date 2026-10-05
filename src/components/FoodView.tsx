@@ -273,7 +273,7 @@ export function FoodView({
                     )}
                   </div>
                   <p className="text-xs text-slate-400">
-                    {item.portion || '1 serving'} &bull; P: {Math.round(item.proteinG || 0)}g &bull; C: {Math.round(item.carbsG || 0)}g &bull; F: {Math.round(item.fatG || 0)}g
+                    {item.portion || '1 serving'} · P: {Math.round(item.proteinG || 0)}g · C: {Math.round(item.carbsG || 0)}g · F: {Math.round(item.fatG || 0)}g
                   </p>
                 </div>
               </div>
@@ -459,7 +459,7 @@ export function FoodView({
                       <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-700/50 pb-2">
                         <div>
                           <p className="font-semibold text-white">{f.name}</p>
-                          <p className="text-slate-400">{f.estimated_portion} &bull; P: {f.protein_g}g &bull; C: {f.carbs_g}g &bull; F: {f.fat_g}g</p>
+                          <p className="text-slate-400">{f.estimated_portion} · P: {f.protein_g}g · C: {f.carbs_g}g · F: {f.fat_g}g</p>
                         </div>
                         <span className="font-bold text-emerald-400">{f.calories} kcal</span>
                       </div>
@@ -543,7 +543,7 @@ export function FoodView({
                       <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-700/50 pb-2">
                         <div>
                           <p className="font-semibold text-white">{f.name}</p>
-                          <p className="text-slate-400">{f.estimated_portion} &bull; P: {f.protein_g}g &bull; C: {f.carbs_g}g &bull; F: {f.fat_g}g</p>
+                          <p className="text-slate-400">{f.estimated_portion} · P: {f.protein_g}g · C: {f.carbs_g}g · F: {f.fat_g}g</p>
                         </div>
                         <span className="font-bold text-emerald-400">{f.calories} kcal</span>
                       </div>

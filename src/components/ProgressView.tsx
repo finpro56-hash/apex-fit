@@ -114,7 +114,7 @@ export function ProgressView({ progressList, onRefresh }: ProgressViewProps) {
                 <div>
                   <h4 className="text-sm font-bold text-white tabular-nums">{entry.weightKg} kg</h4>
                   <p className="text-xs text-slate-400">
-                    {entry.date} {entry.bodyFatPercentage ? `&bull; BF: ${entry.bodyFatPercentage}%` : ''} {entry.notes ? `&bull; ${entry.notes}` : ''}
+                    {entry.date} {entry.bodyFatPercentage ? `· BF: ${entry.bodyFatPercentage}%` : ''} {entry.notes ? `· ${entry.notes}` : ''}
                   </p>
                 </div>
               </div>

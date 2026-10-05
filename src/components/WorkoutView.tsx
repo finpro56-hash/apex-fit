@@ -311,7 +311,7 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
                             {isAllDone ? '✔️ Completed' : `⚡ ${completedSets}/${totalSets} Sets Done`}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400">{session.date} &bull; Tap card to edit sets</p>
+                        <p className="text-xs text-slate-400">{session.date} · Tap card to edit sets</p>
                       </div>
                     </div>
 
