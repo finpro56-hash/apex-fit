@@ -52,7 +52,7 @@ export interface WorkoutPlan {
   id?: string;
   title: string;
   description: string;
-  exercises: { name: string; defaultSets: number; defaultReps: number }[];
+  exercises: string[];
 }
 
 export interface WorkoutSession {

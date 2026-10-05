@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { WorkoutSession, WorkoutExercise } from '../types';
+import React, { useState, useEffect } from 'react';
+import { WorkoutSession, WorkoutExercise, WorkoutPlan } from '../types';
 import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame } from 'lucide-react';
 import { db, auth } from '../firebase/config';
-import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
 
 interface WorkoutViewProps {
@@ -18,8 +18,69 @@ interface WorkoutViewProps {
 }
 
 export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }: WorkoutViewProps) {
+  const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlan[]>([]);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [planTitle, setPlanTitle] = useState('');
+  const [planDesc, setPlanDesc] = useState('');
+  const [exerciseInput, setExerciseInput] = useState('Bench Press, Incline Dumbbell Press, Tricep Pushdown');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchWorkoutPlans();
+  }, []);
+
+  const fetchWorkoutPlans = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    try {
+      const snap = await getDocs(collection(db, 'users', uid, 'workoutPlans'));
+      const plans: WorkoutPlan[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      setWorkoutPlans(plans);
+    } catch (err) {
+      console.error('Error fetching workout plans:', err);
+    }
+  };
+
+  const handleCreatePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!planTitle.trim()) return;
+    setSubmitting(true);
+    try {
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        const exercises = exerciseInput.split(',').map((s) => s.trim()).filter(Boolean);
+        await addDoc(collection(db, 'users', uid, 'workoutPlans'), {
+          title: planTitle.trim(),
+          description: planDesc.trim(),
+          exercises: exercises.length > 0 ? exercises : ['Exercise 1'],
+          createdAt: serverTimestamp(),
+        });
+        setPlanTitle('');
+        setPlanDesc('');
+        setExerciseInput('Bench Press, Incline Dumbbell Press');
+        setIsPlanModalOpen(false);
+        await fetchWorkoutPlans();
+      }
+    } catch (err) {
+      console.error('Error creating workout plan:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeletePlan = async (id?: string) => {
+    if (!id) return;
+    try {
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        await deleteDoc(doc(db, 'users', uid, 'workoutPlans', id));
+        await fetchWorkoutPlans();
+      }
+    } catch (err) {
+      console.error('Error deleting workout plan:', err);
+    }
+  };
 
   // Filter sessions for selectedDate
   const daySessions = sessions.filter((s) => s.date === selectedDate);
@@ -188,76 +249,102 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     );
   }
 
+  const defaultPlans = [
+    { title: 'Push Day', desc: 'Chest, Shoulders & Triceps', exercises: ['Bench Press', 'Incline Dumbbell Press', 'Shoulder Press', 'Tricep Pushdown'] },
+    { title: 'Pull Day', desc: 'Back & Biceps', exercises: ['Deadlift', 'Lat Pulldown', 'Barbell Row', 'Bicep Curl'] },
+    { title: 'Leg Day', desc: 'Quads, Hamstrings & Calves', exercises: ['Barbell Squat', 'Romanian Deadlift', 'Leg Press', 'Calf Raise'] },
+  ];
+
   return (
     <div className="space-y-6 pb-24">
       <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-extrabold text-white">Workout Tracker</h2>
-          <p className="text-xs text-slate-400">Workouts for {selectedDate}.</p>
+          <h2 className="text-2xl font-extrabold text-white">Workout Structures</h2>
+          <p className="text-xs text-slate-400">Design daily routines (Chest Day, Leg Day, Custom) and start workouts.</p>
+        </div>
+        <button
+          onClick={() => setIsPlanModalOpen(true)}
+          className="p-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-lg shadow-emerald-950"
+        >
+          <Plus className="w-4 h-4" /> Create Routine
+        </button>
+      </div>
+
+      {/* Workout Routines / Plans */}
+      <div className="space-y-4">
+        <h3 className="text-base font-bold text-white">Available Workout Routines</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {defaultPlans.map((p, idx) => (
+            <div key={idx} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-base font-bold text-white">{p.title}</h4>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">Preset</span>
+                </div>
+                <p className="text-xs text-slate-400 mb-3">{p.desc}</p>
+                <div className="flex flex-wrap gap-1 mb-4">
+                  {p.exercises.map((ex, eIdx) => (
+                    <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2 py-1 rounded-lg">
+                      {ex}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => startWorkout(p.title, p.exercises)}
+                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
+              </button>
+            </div>
+          ))}
+
+          {workoutPlans.map((plan) => (
+            <div key={plan.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-base font-bold text-white">{plan.title}</h4>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-md">Custom</span>
+                    <button
+                      onClick={() => handleDeletePlan(plan.id)}
+                      className="text-slate-500 hover:text-red-400"
+                      title="Delete routine"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-3">{plan.description || 'Custom workout routine'}</p>
+                <div className="flex flex-wrap gap-1 mb-4">
+                  {plan.exercises.map((ex, eIdx) => (
+                    <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2 py-1 rounded-lg">
+                      {ex}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => startWorkout(plan.title, plan.exercises)}
+                className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Quick Workout Starters */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-gradient-to-br from-slate-900 to-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
-          <div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center mb-3">
-              <Dumbbell className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-white mb-1">Push Day</h3>
-            <p className="text-xs text-slate-400 mb-4">Bench Press, Incline Press, Overhead Press, Triceps.</p>
-          </div>
-          <button
-            onClick={() => startWorkout('Push Day', ['Bench Press', 'Incline Dumbbell Press', 'Shoulder Press', 'Tricep Pushdown'])}
-            className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-          </button>
-        </div>
-
-        <div className="bg-gradient-to-br from-slate-900 to-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
-          <div>
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center mb-3">
-              <Flame className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-white mb-1">Pull Day</h3>
-            <p className="text-xs text-slate-400 mb-4">Deadlift, Pull-ups, Barbell Row, Bicep Curls.</p>
-          </div>
-          <button
-            onClick={() => startWorkout('Pull Day', ['Deadlift', 'Lat Pulldown', 'Barbell Row', 'Bicep Curl'])}
-            className="w-full h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-blue-950"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-          </button>
-        </div>
-
-        <div className="bg-gradient-to-br from-slate-900 to-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-md">
-          <div>
-            <div className="w-10 h-10 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center mb-3">
-              <Clock className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-white mb-1">Leg Day</h3>
-            <p className="text-xs text-slate-400 mb-4">Squats, Romanian Deadlifts, Leg Press, Calf Raises.</p>
-          </div>
-          <button
-            onClick={() => startWorkout('Leg Day', ['Barbell Squat', 'Romanian Deadlift', 'Leg Press', 'Calf Raise'])}
-            className="w-full h-10 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-purple-950"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-          </button>
-        </div>
-      </div>
-
-      {/* Workout History */}
-      <div className="space-y-3">
-        <h3 className="text-base font-bold text-white">Workouts on {selectedDate}</h3>
+      {/* Workout History for Selected Date */}
+      <div className="space-y-3 pt-4 border-t border-slate-800">
+        <h3 className="text-base font-bold text-white">Workouts Completed on {selectedDate}</h3>
         {daySessions.length === 0 ? (
-          <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl p-6">
-            <Dumbbell className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-sm font-semibold text-slate-300">No workouts logged for this date</p>
-            <p className="text-xs text-slate-500 mt-1">Start a workout session above for {selectedDate}.</p>
+          <div className="text-center py-10 bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <Dumbbell className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-slate-300">No workout sessions logged for this date</p>
+            <p className="text-xs text-slate-500 mt-1">Start a workout routine above.</p>
           </div>
         ) : (
           daySessions.map((session) => (
@@ -283,6 +370,66 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
           ))
         )}
       </div>
+
+      {/* Create Routine Modal */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-slate-100 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold">Create Custom Workout Routine</h3>
+              <button onClick={() => setIsPlanModalOpen(false)} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePlan} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Routine Name (e.g. Chest Day, Leg Day)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Chest & Biceps"
+                  value={planTitle}
+                  onChange={(e) => setPlanTitle(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Description (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Heavy compound movements & hypertrophy"
+                  value={planDesc}
+                  onChange={(e) => setPlanDesc(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Exercises (comma separated)</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Barbell Bench Press, Incline Dumbbell Fly, Cable Crossover"
+                  value={exerciseInput}
+                  onChange={(e) => setExerciseInput(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 mt-6 shadow-lg shadow-emerald-950"
+              >
+                <Plus className="w-4 h-4" />
+                {submitting ? 'Creating...' : 'Save Workout Routine'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
