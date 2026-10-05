@@ -173,6 +173,8 @@ export default function App() {
             {activeTab === 'progress' && (
               <ProgressView
                 progressList={progressList}
+                foodLogs={foodLogs}
+                goals={goals}
                 onRefresh={handleRefreshData}
               />
             )}
