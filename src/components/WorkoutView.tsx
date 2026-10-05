@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { WorkoutSession, WorkoutExercise, WorkoutPlan } from '../types';
-import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame, Edit3, AlertCircle } from 'lucide-react';
+import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame, Edit3, Sparkles } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
@@ -87,8 +87,8 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
       id: `ex_${idx}_${Date.now()}`,
       name,
       sets: [
-        { setNumber: 1, weightKg: 60, reps: 10, completed: true },
-        { setNumber: 2, weightKg: 60, reps: 10, completed: true },
+        { setNumber: 1, weightKg: 60, reps: 10, completed: false },
+        { setNumber: 2, weightKg: 60, reps: 10, completed: false },
         { setNumber: 3, weightKg: 60, reps: 8, completed: false },
       ],
     }));
@@ -278,22 +278,98 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     <div className="space-y-6 pb-24">
       <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-extrabold text-white">Custom Workout Routines</h2>
-          <p className="text-xs text-slate-400">Build your custom routines and track progress for {selectedDate}.</p>
-        </div>
-        <button
-          onClick={() => setIsPlanModalOpen(true)}
-          className="p-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-lg shadow-emerald-950"
-        >
-          <Plus className="w-4 h-4" /> Create Routine
-        </button>
-      </div>
+      {/* Logged / Active Sessions Section for Selected Date */}
+      {daySessions.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-emerald-400" />
+            Workouts Logged for {selectedDate}
+          </h3>
+          <div className="grid grid-cols-1 gap-3">
+            {daySessions.map((session) => {
+              const totalSets = session.exercises?.reduce((acc, ex) => acc + (ex.sets?.length || 0), 0) || 0;
+              const completedSets = session.exercises?.reduce((acc, ex) => acc + (ex.sets?.filter((s) => s.completed).length || 0), 0) || 0;
+              const isAllDone = completedSets === totalSets && totalSets > 0;
 
-      {/* Custom Workout Routines Only */}
+              return (
+                <div
+                  key={session.id}
+                  onClick={() => setActiveSession(session)}
+                  className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-5 shadow-lg cursor-pointer hover:border-emerald-500 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
+                        <CheckCircle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-bold text-white">{session.planTitle}</h4>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+                            isAllDone ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
+                          }`}>
+                            {isAllDone ? '✔️ Completed' : `⚡ ${completedSets}/${totalSets} Sets Done`}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400">{session.date} &bull; Tap card to edit sets</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {session.exercises?.map((ex, eIdx) => {
+                        const isExDone = ex.sets?.some((s) => s.completed);
+                        return (
+                          <span
+                            key={eIdx}
+                            className={`text-[10px] px-2.5 py-1 rounded-lg font-medium border flex items-center gap-1 ${
+                              isExDone
+                                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-800/80'
+                                : 'bg-amber-950/90 text-amber-300 border-amber-800/80'
+                            }`}
+                          >
+                            {isExDone ? '✔️' : '⏳'} {ex.name}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setActiveSession(session); }}
+                      className="h-10 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold flex items-center gap-2 border border-emerald-500/30 transition-all"
+                    >
+                      <Edit3 className="w-4 h-4" /> Edit Workout
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
+                      className="p-2.5 rounded-xl bg-slate-800 text-slate-500 hover:text-red-400 transition-colors"
+                      title="Delete session"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Normal Custom Workout Routines */}
       <div className="space-y-4">
-        <h3 className="text-base font-bold text-white">Your Workout Routines</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-extrabold text-white">Your Workout Routines</h2>
+            <p className="text-xs text-slate-400">Select a routine to start a workout session for {selectedDate}.</p>
+          </div>
+          <button
+            onClick={() => setIsPlanModalOpen(true)}
+            className="p-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-lg shadow-emerald-950"
+          >
+            <Plus className="w-4 h-4" /> Create Routine
+          </button>
+        </div>
 
         {workoutPlans.length === 0 ? (
           <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-3xl p-6">
@@ -309,76 +385,51 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {workoutPlans.map((plan) => {
-              const loggedSession = daySessions.find((s) => s.planTitle.toLowerCase() === plan.title.toLowerCase());
-              const isDone = Boolean(loggedSession);
-
-              return (
-                <div
-                  key={plan.id}
-                  className={`bg-slate-900 border rounded-2xl p-5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
-                    isDone ? 'border-emerald-500/50 bg-slate-900/90' : 'border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="space-y-2 flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold ${
-                        isDone ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'
-                      }`}>
-                        {isDone ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-base font-bold text-white">{plan.title}</h4>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
-                            isDone ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
-                          }`}>
-                            {isDone ? '✔️ Done' : '⏳ Pending'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400">{plan.description || 'Custom routine'}</p>
-                      </div>
+            {workoutPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-700 transition-all"
+              >
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-slate-800 text-emerald-400 flex items-center justify-center font-bold">
+                      <Dumbbell className="w-5 h-5" />
                     </div>
-
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {plan.exercises.map((ex, eIdx) => (
-                        <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2.5 py-1 rounded-lg">
-                          {ex}
-                        </span>
-                      ))}
+                    <div>
+                      <h4 className="text-base font-bold text-white">{plan.title}</h4>
+                      <p className="text-xs text-slate-400">{plan.description || 'Custom routine'}</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isDone && loggedSession ? (
-                      <button
-                        onClick={() => setActiveSession(loggedSession)}
-                        className="h-10 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold flex items-center gap-2 border border-emerald-500/30 transition-all"
-                      >
-                        <Edit3 className="w-4 h-4" /> Edit Workout
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => startWorkout(plan.title, plan.exercises)}
-                        className="h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
-                      </button>
-                    )}
-
-                    {plan.id && (
-                      <button
-                        onClick={() => handleDeletePlan(plan.id)}
-                        className="p-2.5 rounded-xl bg-slate-800 text-slate-500 hover:text-red-400 transition-colors"
-                        title="Delete routine"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {plan.exercises.map((ex, eIdx) => (
+                      <span key={eIdx} className="text-[10px] bg-slate-800/80 text-slate-300 px-2.5 py-1 rounded-lg">
+                        {ex}
+                      </span>
+                    ))}
                   </div>
                 </div>
-              );
-            })}
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => startWorkout(plan.title, plan.exercises)}
+                    className="h-10 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950 transition-all"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" /> Start Workout
+                  </button>
+
+                  {plan.id && (
+                    <button
+                      onClick={() => handleDeletePlan(plan.id)}
+                      className="p-2.5 rounded-xl bg-slate-800 text-slate-500 hover:text-red-400 transition-colors"
+                      title="Delete routine"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
