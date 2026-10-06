@@ -1,24 +1,32 @@
-# Apex Fit - Navbar Logo Update Plan
+# Apex Fit - AuthScreen Logo Fix Plan
 
-A targeted design update to replace the text placeholder icon ("A") in `Navbar.tsx` with the emerald Dumbbell logo container matching `AuthScreen.tsx` and `favicon.svg`.
+A targeted fix for `src/components/AuthScreen.tsx` to ensure the login screen logo uses a pure inline React SVG vector icon (`<Dumbbell />`), eliminating all static image fetching and guaranteeing 100% reliable rendering on hosted environments (Cloud Run, Vercel, static previews).
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following design selections incorporate your responses from the interactive clarification step:
+> The following decisions incorporate your choices from the interactive clarification step:
 
-- **Navbar Logo Style**: Emerald squircle container (`w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-md shadow-emerald-950`) with the `<Dumbbell className="w-4 h-4" />` icon.
-- **Header Behavior**: Static display in the top header bar without overriding tab state handlers.
+- **Inline Vector Rendering**: Use inline Lucide `<Dumbbell className="w-8 h-8 text-emerald-400" />` directly bundled into JavaScript bundle, avoiding broken `<img>` HTTP requests or asset path resolution failures on hosted servers.
+- **Container Styling**: Preserve the default emerald container styling (`w-16 h-16 rounded-3xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-6 shadow-2xl shadow-emerald-950`).
 
 ---
 
-## 1. Scope & File Updates
+## 1. Targeted Elements & Scope
 
-1. **`src/components/Navbar.tsx`**:
-   - Replace the letter "A" placeholder in the header container with `<Dumbbell className="w-4 h-4" />`.
-   - Align styling with the login screen and favicon aesthetic.
+- **Target Component**: `src/components/AuthScreen.tsx`
+- **Target Container**: `div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1)`
+- **Target Icon**: `div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > svg:nth-of-type(1)`
+
+---
+
+## Technical Implementation Steps
+
+1. **Update `src/components/AuthScreen.tsx`**:
+   - Ensure the logo container renders the inline Lucide `<Dumbbell className="w-8 h-8 text-emerald-400" />` SVG icon.
+   - Remove any potential static `<img>` tag or external asset path references.
 
 2. **Verification**:
-   - Run `compile_applet` and `lint_applet` to confirm clean compilation and zero type errors.
+   - Run `compile_applet` and `lint_applet` to confirm build integrity.
