@@ -22,6 +22,11 @@ import {
 dotenv.config();
 
 const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  console.warn('⚠️ GEMINI_API_KEY is missing from environment variables (.env)');
+} else {
+  console.log('✅ GEMINI_API_KEY successfully loaded from environment variables');
+}
 const ai = new GoogleGenAI(apiKey ? { apiKey } : {});
 
 // Helper to try models with fallback: gemini-3.8-flash -> gemini-3.5-flash -> gemini-3.5-flash-lite -> gemini-3.1-flash-lite

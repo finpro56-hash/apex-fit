@@ -1,32 +1,42 @@
-# Favicon Update Plan
+# Gemini API Key Environment Variable Configuration Plan
 
-A straightforward update to set the custom green dumbbell SVG design as the official application favicon for **Apex Fit**.
+Ensure **GEMINI_API_KEY** is strictly managed via `.env` and accessed securely on the backend server (`server.ts`) via `process.env.GEMINI_API_KEY`, completely isolated from client-side code.
 
 ---
 
-## 1. Scope of Work
+## 1. Objectives & Scope
 
-1. **Favicon Asset Creation**:
-   - Save the provided SVG icon to `/public/favicon.svg`.
-
-2. **HTML Entry Point Linking**:
-   - Add `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />` inside the `<head>` tag of `index.html`.
-
-3. **Strict Non-Interference**:
-   - Make zero changes to any existing UI components, styling, routing, application logic, or database configurations.
+- **Environment File Configuration**: Ensure `GEMINI_API_KEY` is defined in `.env` and documented in `.env.example`.
+- **Backend Verification (`server.ts`)**: Initialize `GoogleGenAI` strictly using `process.env.GEMINI_API_KEY` (loaded via `dotenv`) with clear logging if missing.
+- **Client Isolation**: Verify no Gemini API keys or SDKs are referenced in client React code.
 
 ---
 
 ## Technical Architecture
 
 ```
-/public/favicon.svg  ──────►  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />  (index.html)
+                 .env file (Server-side ONLY)
+                 GEMINI_API_KEY="<api-key>"
+                            │
+                            ▼
+                        server.ts
+              process.env.GEMINI_API_KEY
+                            │
+                            ▼
+                    GoogleGenAI SDK
+                            │
+                            ▼
+              Server API Proxy Endpoints
 ```
 
 ---
 
 ## Implementation Steps
 
-1. Create `/public/favicon.svg` with the exact SVG markup supplied.
-2. Update `index.html` to include the favicon link tag.
-3. Verify compilation and linting.
+1. **Update `server.ts`**:
+   - Ensure `dotenv.config()` loads `process.env.GEMINI_API_KEY`.
+   - Add explicit logging for `process.env.GEMINI_API_KEY` validation.
+2. **Verify `.env` & `.env.example`**:
+   - Ensure `GEMINI_API_KEY` placeholder is set up in `.env` and `.env.example`.
+3. **Verification**:
+   - Run `compile_applet` and `lint_applet` to verify compilation.
