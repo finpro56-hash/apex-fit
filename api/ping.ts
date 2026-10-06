@@ -1,13 +1,17 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-export default function handler(req: any, res: any) {
-  res.status(200).json({
+export default async function handler(req: any, res: any) {
+  const result: any = {
     ok: true,
     hasGeminiKey: !!process.env.GEMINI_API_KEY,
-    hasFirebaseProjectId: !!(process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID),
-    nodeEnv: process.env.NODE_ENV,
-  });
+  };
+
+  try {
+    const mod = await import('../server/app.js');
+    mod.createApp();
+    result.appLoads = true;
+  } catch (e: any) {
+    result.appLoads = false;
+    result.error = String(e?.message || e).slice(0, 500);
+  }
+
+  res.status(200).json(result);
 }
