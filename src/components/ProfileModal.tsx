@@ -5,9 +5,10 @@
 
 import React, { useState } from 'react';
 import { UserGoals, UserProfile } from '../types';
-import { X, Save, User, Flame, Sparkles, Loader2 } from 'lucide-react';
+import { X, Save, User, Flame, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { doc, setDoc } from 'firebase/firestore';
+import { UserProfileSchema, UserGoalsSchema, getZodErrorMessage } from '../lib/validation';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -24,11 +25,18 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
   const [calculatingCals, setCalculatingCals] = useState(false);
   const [calculatingMacros, setCalculatingMacros] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleCalculateMaintenance = async () => {
-    if (!formData.weightKg || !formData.heightCm || !formData.age) return;
+    setErrorMessage(null);
+    const validation = UserProfileSchema.safeParse(formData);
+    if (!validation.success) {
+      setErrorMessage(getZodErrorMessage(validation.error));
+      return;
+    }
+
     setCalculatingCals(true);
     try {
       const res = await fetch('/api/calculate-nutrition-goals', {
@@ -37,21 +45,30 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
         body: JSON.stringify({ ...formData }),
       });
       const data = await res.json();
-      if (res.ok && data.maintenanceCalories) {
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to calculate maintenance calories');
+      }
+      if (data.maintenanceCalories) {
         setMaintenanceCals(Math.round(data.maintenanceCalories));
         if (!goalData.calorieTarget) {
           setGoalData((prev) => ({ ...prev, calorieTarget: Math.round(data.maintenanceCalories) }));
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error calculating maintenance calories:', err);
+      setErrorMessage(err.message || 'Error communicating with AI service');
     } finally {
       setCalculatingCals(false);
     }
   };
 
   const handleCalculateMacros = async () => {
-    if (!goalData.calorieTarget) return;
+    setErrorMessage(null);
+    if (!goalData.calorieTarget || goalData.calorieTarget < 500) {
+      setErrorMessage('Please enter a target calorie of at least 500 kcal.');
+      return;
+    }
+
     setCalculatingMacros(true);
     try {
       const res = await fetch('/api/calculate-nutrition-goals', {
@@ -60,7 +77,10 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
         body: JSON.stringify({ ...formData, calorieTarget: goalData.calorieTarget }),
       });
       const data = await res.json();
-      if (res.ok) {
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to calculate macros');
+      }
+      if (data) {
         setGoalData((prev) => ({
           ...prev,
           proteinTarget: Math.round(data.proteinTarget || prev.proteinTarget),
@@ -68,8 +88,9 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
           fatTarget: Math.round(data.fatTarget || prev.fatTarget),
         }));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error calculating macros:', err);
+      setErrorMessage(err.message || 'Error communicating with AI service');
     } finally {
       setCalculatingMacros(false);
     }
@@ -77,6 +98,21 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
+
+    // Validate both Profile and Goals with Zod
+    const profValidation = UserProfileSchema.safeParse(formData);
+    if (!profValidation.success) {
+      setErrorMessage(getZodErrorMessage(profValidation.error));
+      return;
+    }
+
+    const goalsValidation = UserGoalsSchema.safeParse(goalData);
+    if (!goalsValidation.success) {
+      setErrorMessage(getZodErrorMessage(goalsValidation.error));
+      return;
+    }
+
     setSaving(true);
     try {
       const uid = auth.currentUser?.uid;
@@ -92,8 +128,9 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
       }
       onSave(formData, goalData);
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving profile:', err);
+      setErrorMessage(err.message || 'Failed to save profile');
     } finally {
       setSaving(false);
     }
@@ -114,6 +151,13 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
           </button>
         </div>
 
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Body Metrics Section */}
           <div className="space-y-3">
@@ -124,18 +168,24 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 <input
                   type="number"
                   step="0.1"
+                  min="20"
+                  max="500"
                   value={formData.weightKg}
                   onChange={(e) => setFormData({ ...formData, weightKg: parseFloat(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
+                  required
                 />
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Height (cm)</label>
                 <input
                   type="number"
+                  min="50"
+                  max="300"
                   value={formData.heightCm}
                   onChange={(e) => setFormData({ ...formData, heightCm: parseFloat(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
+                  required
                 />
               </div>
             </div>
@@ -144,22 +194,26 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 <label className="text-xs text-slate-400 mb-1 block">Age</label>
                 <input
                   type="number"
+                  min="5"
+                  max="120"
                   value={formData.age}
                   onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
+                  required
                 />
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Activity Level</label>
                 <select
                   value={formData.activityLevel}
-                  onChange={(e) => setFormData({ ...formData, activityLevel: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, activityLevel: e.target.value as any })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
                 >
                   <option value="sedentary">Sedentary</option>
                   <option value="light">Lightly Active</option>
                   <option value="moderate">Moderately Active</option>
                   <option value="very">Very Active</option>
+                  <option value="extra">Extra Active</option>
                 </select>
               </div>
             </div>
@@ -191,9 +245,12 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
               <label className="text-xs text-slate-400 mb-1 block">Target Daily Calories (kcal)</label>
               <input
                 type="number"
+                min="500"
+                max="10000"
                 value={goalData.calorieTarget}
                 onChange={(e) => setGoalData({ ...goalData, calorieTarget: parseInt(e.target.value) || 0 })}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
+                required
               />
             </div>
 
@@ -212,6 +269,8 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 <label className="text-xs text-slate-400 mb-1 block">Protein (g)</label>
                 <input
                   type="number"
+                  min="0"
+                  max="1000"
                   value={goalData.proteinTarget}
                   onChange={(e) => setGoalData({ ...goalData, proteinTarget: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
@@ -221,6 +280,8 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 <label className="text-xs text-slate-400 mb-1 block">Carbs (g)</label>
                 <input
                   type="number"
+                  min="0"
+                  max="2000"
                   value={goalData.carbTarget}
                   onChange={(e) => setGoalData({ ...goalData, carbTarget: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"
@@ -230,6 +291,8 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
                 <label className="text-xs text-slate-400 mb-1 block">Fat (g)</label>
                 <input
                   type="number"
+                  min="0"
+                  max="1000"
                   value={goalData.fatTarget}
                   onChange={(e) => setGoalData({ ...goalData, fatTarget: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 tabular-nums"

@@ -3,104 +3,75 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { ProgressEntry, FoodLogItem, UserGoals } from '../types';
-import { TrendingUp, Plus, Trash2, Scale, X, Activity, Flame, Calendar, Award } from 'lucide-react';
+import { TrendingUp, Plus, Trash2, Scale, X, Activity, Flame, Calendar, Award, AlertCircle } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { ProgressEntrySchema, getZodErrorMessage } from '../lib/validation';
 
 interface ProgressViewProps {
   progressList: ProgressEntry[];
+  setProgressList?: React.Dispatch<React.SetStateAction<ProgressEntry[]>>;
   foodLogs?: FoodLogItem[];
   goals?: UserGoals;
   onRefresh: () => void;
 }
 
-export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: ProgressViewProps) {
+export function ProgressView({ progressList, setProgressList, foodLogs = [], goals, onRefresh }: ProgressViewProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [weightKg, setWeightKg] = useState('');
   const [bodyFat, setBodyFat] = useState('');
   const [notes, setNotes] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; entry: ProgressEntry } | null>(null);
   const [hoveredCalBar, setHoveredCalBar] = useState<{ x: number; y: number; date: string; calories: number } | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!weightKg) return;
-    setSubmitting(true);
-    try {
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
-        await addDoc(collection(db, 'users', uid, 'progress'), {
-          date: todayStr,
-          weightKg: parseFloat(weightKg),
-          bodyFatPercentage: bodyFat ? parseFloat(bodyFat) : null,
-          notes: notes.trim(),
-          createdAt: serverTimestamp(),
-        });
-        setWeightKg('');
-        setBodyFat('');
-        setNotes('');
-        setIsAddOpen(false);
-        onRefresh();
-      }
-    } catch (err) {
-      console.error('Error adding progress entry:', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  // Memoized Sorts
+  const sortedDesc = useMemo(() => {
+    return [...progressList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [progressList]);
 
-  const handleDelete = async (id?: string) => {
-    if (!id) return;
-    try {
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        await deleteDoc(doc(db, 'users', uid, 'progress', id));
-        onRefresh();
-      }
-    } catch (err) {
-      console.error('Error deleting progress entry:', err);
-    }
-  };
-
-  // Sort list newest first for history list
-  const sortedDesc = [...progressList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  // Sort list chronological for chart (oldest first)
-  const sortedAsc = [...progressList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sortedAsc = useMemo(() => {
+    return [...progressList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [progressList]);
 
   const latestWeight = sortedDesc[0]?.weightKg || 70;
   const initialWeight = sortedDesc[sortedDesc.length - 1]?.weightKg || latestWeight;
   const weightDiff = Math.round((latestWeight - initialWeight) * 10) / 10;
 
-  // Weight Chart coordinate calculation
+  // Memoized Weight Chart Coordinate Calculation
   const chartWidth = 500;
   const chartHeight = 180;
   const padding = 35;
 
-  const weights = sortedAsc.map((p) => p.weightKg);
-  const minW = Math.floor(Math.min(...(weights.length ? weights : [60])) - 2);
-  const maxW = Math.ceil(Math.max(...(weights.length ? weights : [80])) + 2);
+  const chartCalculations = useMemo(() => {
+    const weights = sortedAsc.map((p) => p.weightKg);
+    const minW = Math.floor(Math.min(...(weights.length ? weights : [60])) - 2);
+    const maxW = Math.ceil(Math.max(...(weights.length ? weights : [80])) + 2);
 
-  const points = sortedAsc.map((entry, index) => {
-    const x = padding + (index / Math.max(1, sortedAsc.length - 1)) * (chartWidth - padding * 2);
-    const y = chartHeight - padding - ((entry.weightKg - minW) / (maxW - minW || 1)) * (chartHeight - padding * 2);
-    return { x, y, entry };
-  });
+    const points = sortedAsc.map((entry, index) => {
+      const x = padding + (index / Math.max(1, sortedAsc.length - 1)) * (chartWidth - padding * 2);
+      const y = chartHeight - padding - ((entry.weightKg - minW) / (maxW - minW || 1)) * (chartHeight - padding * 2);
+      return { x, y, entry };
+    });
 
-  const pathD = points.length > 0
-    ? points.reduce((acc, p, i) => (i === 0 ? `M ${p.x},${p.y}` : `${acc} L ${p.x},${p.y}`), '')
-    : '';
+    const pathD = points.length > 0
+      ? points.reduce((acc, p, i) => (i === 0 ? `M ${p.x},${p.y}` : `${acc} L ${p.x},${p.y}`), '')
+      : '';
 
-  const areaD = points.length > 0
-    ? `${pathD} L ${points[points.length - 1].x},${chartHeight - padding} L ${points[0].x},${chartHeight - padding} Z`
-    : '';
+    const areaD = points.length > 0
+      ? `${pathD} L ${points[points.length - 1].x},${chartHeight - padding} L ${points[0].x},${chartHeight - padding} Z`
+      : '';
 
-  // Daily Calorie Intake vs Target Data Processing (Last 7 Days)
-  const getLast7Days = () => {
+    return { minW, maxW, points, pathD, areaD };
+  }, [sortedAsc]);
+
+  // Memoized Calorie Breakdown (Last 7 Days)
+  const calorieTarget = goals?.calorieTarget || 2200;
+  const calorieChartData = useMemo(() => {
     const days: string[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -110,26 +81,119 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
       const day = String(d.getDate()).padStart(2, '0');
       days.push(`${year}-${month}-${day}`);
     }
-    return days;
+
+    const data = days.map((dateStr) => {
+      const dayLogs = foodLogs.filter((f) => f.date === dateStr);
+      const totalCals = dayLogs.reduce((acc, curr) => acc + (curr.calories || 0), 0);
+      return {
+        date: dateStr,
+        shortDate: dateStr.slice(5),
+        calories: totalCals,
+      };
+    });
+
+    const maxVal = Math.max(calorieTarget * 1.25, ...data.map((d) => d.calories), 2500);
+    return { data, maxVal };
+  }, [foodLogs, calorieTarget]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setSyncError(null);
+
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const parsedWeight = parseFloat(weightKg);
+    const parsedBf = bodyFat ? parseFloat(bodyFat) : null;
+
+    const validation = ProgressEntrySchema.safeParse({
+      date: todayStr,
+      weightKg: parsedWeight,
+      bodyFatPercentage: parsedBf,
+      notes: notes.trim(),
+    });
+
+    if (!validation.success) {
+      setFormError(getZodErrorMessage(validation.error));
+      return;
+    }
+
+    const tempId = `temp_prog_${Date.now()}`;
+    const optimisticEntry: ProgressEntry = {
+      id: tempId,
+      ...validation.data,
+      createdAt: new Date(),
+    };
+
+    // 0ms Optimistic Update
+    if (setProgressList) {
+      setProgressList((prev) => [optimisticEntry, ...prev]);
+    }
+
+    setWeightKg('');
+    setBodyFat('');
+    setNotes('');
+    setIsAddOpen(false);
+
+    try {
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        const docRef = await addDoc(collection(db, 'users', uid, 'progress'), {
+          ...validation.data,
+          createdAt: serverTimestamp(),
+        });
+
+        if (setProgressList) {
+          setProgressList((prev) =>
+            prev.map((item) => (item.id === tempId ? { ...item, id: docRef.id } : item))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error adding progress entry:', err);
+      setSyncError('Failed to save weight record to server. Reverting.');
+      if (setProgressList) {
+        setProgressList((prev) => prev.filter((item) => item.id !== tempId));
+      }
+    }
   };
 
-  const last7Days = getLast7Days();
-  const calorieTarget = goals?.calorieTarget || 2200;
+  const handleDelete = useCallback(
+    async (id?: string) => {
+      if (!id) return;
+      setSyncError(null);
 
-  const calorieData = last7Days.map((dateStr) => {
-    const dayLogs = foodLogs.filter((f) => f.date === dateStr);
-    const totalCals = dayLogs.reduce((acc, curr) => acc + (curr.calories || 0), 0);
-    return {
-      date: dateStr,
-      shortDate: dateStr.slice(5), // MM-DD
-      calories: totalCals,
-    };
-  });
+      const deletedEntry = progressList.find((p) => p.id === id);
 
-  const maxCalVal = Math.max(calorieTarget * 1.25, ...calorieData.map((d) => d.calories), 2500);
+      // 0ms Optimistic Removal
+      if (setProgressList) {
+        setProgressList((prev) => prev.filter((p) => p.id !== id));
+      }
+
+      try {
+        const uid = auth.currentUser?.uid;
+        if (uid && !id.startsWith('temp_')) {
+          await deleteDoc(doc(db, 'users', uid, 'progress', id));
+        }
+      } catch (err) {
+        console.error('Error deleting progress entry:', err);
+        setSyncError('Failed to delete entry on server. Restoring.');
+        if (deletedEntry && setProgressList) {
+          setProgressList((prev) => [deletedEntry, ...prev]);
+        }
+      }
+    },
+    [progressList, setProgressList]
+  );
 
   return (
     <div className="space-y-6 pb-24">
+      {syncError && (
+        <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <span>{syncError}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -166,7 +230,7 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
         </div>
       </div>
 
-      {/* 1. Body Weight Progression Line Chart */}
+      {/* 1. Body Weight Progression Line Chart (Memoized) */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl relative">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -197,15 +261,15 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
               <line x1={padding} y1={chartHeight - padding} x2={chartWidth - padding} y2={chartHeight - padding} stroke="#334155" strokeWidth="1" />
 
               {/* Y Axis Labels */}
-              <text x={padding - 6} y={padding + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{maxW} kg</text>
-              <text x={padding - 6} y={chartHeight - padding + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{minW} kg</text>
+              <text x={padding - 6} y={padding + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{chartCalculations.maxW} kg</text>
+              <text x={padding - 6} y={chartHeight - padding + 4} fill="#94a3b8" fontSize="9" textAnchor="end">{chartCalculations.minW} kg</text>
 
               {/* Gradient Area & Line */}
-              <path d={areaD} fill="url(#weightGradient)" />
-              <path d={pathD} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d={chartCalculations.areaD} fill="url(#weightGradient)" />
+              <path d={chartCalculations.pathD} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
 
               {/* Interactive Point Nodes */}
-              {points.map((p, idx) => (
+              {chartCalculations.points.map((p, idx) => (
                 <g key={idx} className="cursor-pointer">
                   <circle
                     cx={p.x}
@@ -218,8 +282,7 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
                     onMouseEnter={() => setHoveredPoint(p)}
                     onMouseLeave={() => setHoveredPoint(null)}
                   />
-                  {/* Date label for start and end */}
-                  {(idx === 0 || idx === points.length - 1) && (
+                  {(idx === 0 || idx === chartCalculations.points.length - 1) && (
                     <text x={p.x} y={chartHeight - 10} fill="#64748b" fontSize="8" textAnchor="middle">
                       {p.entry.date.slice(5)}
                     </text>
@@ -242,7 +305,7 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
         )}
       </div>
 
-      {/* 2. Daily Calorie Intake vs Target Compliance Chart */}
+      {/* 2. Daily Calorie Intake vs Target Compliance Chart (Memoized) */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl relative">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -261,7 +324,7 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
           <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-auto overflow-visible">
             {/* Target Line */}
             {(() => {
-              const targetY = chartHeight - padding - ((calorieTarget / maxCalVal) * (chartHeight - padding * 2));
+              const targetY = chartHeight - padding - ((calorieTarget / calorieChartData.maxVal) * (chartHeight - padding * 2));
               return (
                 <>
                   <line
@@ -284,11 +347,11 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
             <line x1={padding} y1={chartHeight - padding} x2={chartWidth - padding} y2={chartHeight - padding} stroke="#334155" strokeWidth="1" />
 
             {/* Bar Charts */}
-            {calorieData.map((d, idx) => {
+            {calorieChartData.data.map((d, idx) => {
               const barWidth = 24;
-              const step = (chartWidth - padding * 2) / calorieData.length;
+              const step = (chartWidth - padding * 2) / calorieChartData.data.length;
               const x = padding + idx * step + (step - barWidth) / 2;
-              const barHeight = Math.max(4, (d.calories / maxCalVal) * (chartHeight - padding * 2));
+              const barHeight = Math.max(4, (d.calories / calorieChartData.maxVal) * (chartHeight - padding * 2));
               const y = chartHeight - padding - barHeight;
               const isOverTarget = d.calories > calorieTarget;
 
@@ -329,7 +392,7 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
         </div>
       </div>
 
-      {/* 3. Weight Log History Section with Clean Typographic Separators (No &bull) */}
+      {/* 3. Weight Log History */}
       <div className="space-y-3">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
           <Calendar className="w-4 h-4 text-emerald-400" />
@@ -390,6 +453,13 @@ export function ProgressView({ progressList, foodLogs = [], goals, onRefresh }: 
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {formError && (
+              <div className="mb-4 p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

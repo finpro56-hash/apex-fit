@@ -69,7 +69,7 @@ export interface ProgressEntry {
   id?: string;
   date: string;
   weightKg: number;
-  bodyFatPercentage?: number;
+  bodyFatPercentage?: number | null;
   notes?: string;
   createdAt: any;
 }

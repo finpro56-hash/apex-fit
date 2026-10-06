@@ -3,21 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { WorkoutSession, WorkoutExercise, WorkoutPlan } from '../types';
-import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame, Edit3, Sparkles } from 'lucide-react';
+import { Dumbbell, Plus, Play, CheckCircle, Trash2, X, Clock, Flame, Edit3, Sparkles, AlertCircle } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
 
 interface WorkoutViewProps {
   sessions: WorkoutSession[];
+  setSessions?: React.Dispatch<React.SetStateAction<WorkoutSession[]>>;
   selectedDate: string;
   onChangeDate: (date: string) => void;
   onRefresh: () => void;
 }
 
-export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }: WorkoutViewProps) {
+export function WorkoutView({ sessions, setSessions, selectedDate, onChangeDate, onRefresh }: WorkoutViewProps) {
   const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlan[]>([]);
   const [activeSession, setActiveSession] = useState<WorkoutSession | null>(null);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -25,6 +26,7 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
   const [planDesc, setPlanDesc] = useState('');
   const [exerciseInput, setExerciseInput] = useState('Bench Press, Incline Dumbbell Press, Tricep Pushdown');
   const [submitting, setSubmitting] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchWorkoutPlans();
@@ -46,24 +48,41 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     e.preventDefault();
     if (!planTitle.trim()) return;
     setSubmitting(true);
+    setSyncError(null);
+
+    const exercises = exerciseInput.split(',').map((s) => s.trim()).filter(Boolean);
+    const tempPlanId = `temp_plan_${Date.now()}`;
+    const newPlan: WorkoutPlan = {
+      id: tempPlanId,
+      title: planTitle.trim(),
+      description: planDesc.trim(),
+      exercises: exercises.length > 0 ? exercises : ['Exercise 1'],
+    };
+
+    // Optimistic routine addition
+    setWorkoutPlans((prev) => [...prev, newPlan]);
+    setPlanTitle('');
+    setPlanDesc('');
+    setExerciseInput('Bench Press, Incline Dumbbell Press');
+    setIsPlanModalOpen(false);
+
     try {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        const exercises = exerciseInput.split(',').map((s) => s.trim()).filter(Boolean);
-        await addDoc(collection(db, 'users', uid, 'workoutPlans'), {
-          title: planTitle.trim(),
-          description: planDesc.trim(),
-          exercises: exercises.length > 0 ? exercises : ['Exercise 1'],
+        const docRef = await addDoc(collection(db, 'users', uid, 'workoutPlans'), {
+          title: newPlan.title,
+          description: newPlan.description,
+          exercises: newPlan.exercises,
           createdAt: serverTimestamp(),
         });
-        setPlanTitle('');
-        setPlanDesc('');
-        setExerciseInput('Bench Press, Incline Dumbbell Press');
-        setIsPlanModalOpen(false);
-        await fetchWorkoutPlans();
+        setWorkoutPlans((prev) =>
+          prev.map((p) => (p.id === tempPlanId ? { ...p, id: docRef.id } : p))
+        );
       }
     } catch (err) {
       console.error('Error creating workout plan:', err);
+      setSyncError('Failed to save workout routine to server');
+      setWorkoutPlans((prev) => prev.filter((p) => p.id !== tempPlanId));
     } finally {
       setSubmitting(false);
     }
@@ -71,14 +90,21 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
 
   const handleDeletePlan = async (id?: string) => {
     if (!id) return;
+    setSyncError(null);
+    const deletedPlan = workoutPlans.find((p) => p.id === id);
+    setWorkoutPlans((prev) => prev.filter((p) => p.id !== id));
+
     try {
       const uid = auth.currentUser?.uid;
-      if (uid) {
+      if (uid && !id.startsWith('temp_')) {
         await deleteDoc(doc(db, 'users', uid, 'workoutPlans', id));
-        await fetchWorkoutPlans();
       }
     } catch (err) {
       console.error('Error deleting workout plan:', err);
+      setSyncError('Failed to delete routine. Restoring.');
+      if (deletedPlan) {
+        setWorkoutPlans((prev) => [...prev, deletedPlan]);
+      }
     }
   };
 
@@ -128,50 +154,107 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
   const saveWorkoutSession = async () => {
     if (!activeSession) return;
     setSubmitting(true);
+    setSyncError(null);
+
+    const isEditing = Boolean(activeSession.id);
+    const tempSessionId = activeSession.id || `temp_session_${Date.now()}`;
+    const optimisticSession: WorkoutSession = {
+      ...activeSession,
+      id: tempSessionId,
+      date: selectedDate,
+      completed: true,
+    };
+
+    // 0ms Optimistic Update
+    if (setSessions) {
+      setSessions((prev) => {
+        if (isEditing) {
+          return prev.map((s) => (s.id === activeSession.id ? optimisticSession : s));
+        } else {
+          return [optimisticSession, ...prev];
+        }
+      });
+    }
+
+    const currentSession = activeSession;
+    setActiveSession(null);
+
     try {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        if (activeSession.id) {
-          await setDoc(doc(db, 'users', uid, 'workoutSessions', activeSession.id), {
-            planTitle: activeSession.planTitle,
-            date: selectedDate,
-            exercises: activeSession.exercises,
-            completed: true,
-            durationMinutes: activeSession.durationMinutes,
-            createdAt: activeSession.createdAt || serverTimestamp(),
-          }, { merge: true });
+        if (currentSession.id && !currentSession.id.startsWith('temp_')) {
+          await setDoc(
+            doc(db, 'users', uid, 'workoutSessions', currentSession.id),
+            {
+              planTitle: currentSession.planTitle,
+              date: selectedDate,
+              exercises: currentSession.exercises,
+              completed: true,
+              durationMinutes: currentSession.durationMinutes,
+              createdAt: currentSession.createdAt || serverTimestamp(),
+            },
+            { merge: true }
+          );
         } else {
-          await addDoc(collection(db, 'users', uid, 'workoutSessions'), {
-            planTitle: activeSession.planTitle,
+          const docRef = await addDoc(collection(db, 'users', uid, 'workoutSessions'), {
+            planTitle: currentSession.planTitle,
             date: selectedDate,
-            exercises: activeSession.exercises,
+            exercises: currentSession.exercises,
             completed: true,
-            durationMinutes: activeSession.durationMinutes,
+            durationMinutes: currentSession.durationMinutes,
             createdAt: serverTimestamp(),
           });
+
+          if (setSessions) {
+            setSessions((prev) =>
+              prev.map((s) => (s.id === tempSessionId ? { ...s, id: docRef.id } : s))
+            );
+          }
         }
-        setActiveSession(null);
-        onRefresh();
       }
     } catch (err) {
       console.error('Error saving workout session:', err);
+      setSyncError('Failed to save session to server');
+      if (setSessions) {
+        if (!isEditing) {
+          setSessions((prev) => prev.filter((s) => s.id !== tempSessionId));
+        }
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDeleteSession = async (id?: string) => {
-    if (!id) return;
-    try {
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        await deleteDoc(doc(db, 'users', uid, 'workoutSessions', id));
-        onRefresh();
+  const handleDeleteSession = useCallback(
+    async (id?: string) => {
+      if (!id) return;
+      setSyncError(null);
+      const deletedSession = sessions.find((s) => s.id === id);
+
+      // 0ms Optimistic removal
+      if (setSessions) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
       }
-    } catch (err) {
-      console.error('Error deleting workout session:', err);
-    }
-  };
+
+      try {
+        const uid = auth.currentUser?.uid;
+        if (uid && !id.startsWith('temp_')) {
+          await deleteDoc(doc(db, 'users', uid, 'workoutSessions', id));
+        }
+      } catch (err) {
+        console.error('Error deleting workout session:', err);
+        setSyncError('Failed to delete workout session on server. Restoring.');
+        if (deletedSession && setSessions) {
+          setSessions((prev) => [deletedSession, ...prev]);
+        }
+      }
+    },
+    [sessions, setSessions]
+  );
+
+  const daySessions = useMemo(() => {
+    return sessions.filter((s) => s.date === selectedDate);
+  }, [sessions, selectedDate]);
 
   if (activeSession) {
     const isEditing = Boolean(activeSession.id);
@@ -204,7 +287,15 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-bold text-white">{ex.name}</h3>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${isCompleted ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : isSkipped ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-blue-950 text-blue-300 border border-blue-800'}`}>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+                        isCompleted
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                          : isSkipped
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                          : 'bg-blue-950 text-blue-300 border border-blue-800'
+                      }`}
+                    >
                       {isCompleted ? 'Completed' : isSkipped ? 'Skipped' : `${completedSetsCount}/${totalSetsCount} Sets`}
                     </span>
                   </div>
@@ -272,11 +363,16 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
     );
   }
 
-  const daySessions = sessions.filter((s) => s.date === selectedDate);
-
   return (
     <div className="space-y-6 pb-24">
       <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
+
+      {syncError && (
+        <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <span>{syncError}</span>
+        </div>
+      )}
 
       {/* Logged / Active Sessions Section for Selected Date */}
       {daySessions.length > 0 && (
@@ -305,9 +401,13 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="text-base font-bold text-white">{session.planTitle}</h4>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
-                            isAllDone ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
-                          }`}>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+                              isAllDone
+                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                : 'bg-amber-950 text-amber-300 border border-amber-800'
+                            }`}
+                          >
                             {isAllDone ? '✔️ Completed' : `⚡ ${completedSets}/${totalSets} Sets Done`}
                           </span>
                         </div>
@@ -336,13 +436,19 @@ export function WorkoutView({ sessions, selectedDate, onChangeDate, onRefresh }:
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setActiveSession(session); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveSession(session);
+                      }}
                       className="h-10 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold flex items-center gap-2 border border-emerald-500/30 transition-all"
                     >
                       <Edit3 className="w-4 h-4" /> Edit Workout
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSession(session.id);
+                      }}
                       className="p-2.5 rounded-xl bg-slate-800 text-slate-500 hover:text-red-400 transition-colors"
                       title="Delete session"
                     >

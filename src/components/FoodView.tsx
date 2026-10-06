@@ -3,15 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { FoodLogItem } from '../types';
-import { Plus, Camera, Mic, Trash2, Apple, Sparkles, Check, X, Loader2 } from 'lucide-react';
+import { Plus, Camera, Mic, Trash2, Apple, Sparkles, Check, X, Loader2, AlertCircle } from 'lucide-react';
 import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
+import { FoodLogItemSchema, getZodErrorMessage } from '../lib/validation';
 
 interface FoodViewProps {
   foodLogs: FoodLogItem[];
+  setFoodLogs?: React.Dispatch<React.SetStateAction<FoodLogItem[]>>;
   selectedDate: string;
   onChangeDate: (date: string) => void;
   onRefresh: () => void;
@@ -23,6 +25,7 @@ interface FoodViewProps {
 
 export function FoodView({
   foodLogs,
+  setFoodLogs,
   selectedDate,
   onChangeDate,
   onRefresh,
@@ -39,6 +42,8 @@ export function FoodView({
   const [protein, setProtein] = useState('');
   const [carbs, setCarbs] = useState('');
   const [fat, setFat] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [estimating, setEstimating] = useState(false);
 
@@ -47,20 +52,40 @@ export function FoodView({
   const [aiResult, setAiResult] = useState<any>(null);
   const [textInput, setTextInput] = useState('');
 
-  // Filter food logs for selectedDate
-  const dayFoodLogs = foodLogs.filter((item) => {
-    const itemDate = item.date || (item.createdAt && typeof item.createdAt.toDate === 'function' ? item.createdAt.toDate().toISOString().split('T')[0] : selectedDate);
-    return itemDate === selectedDate;
-  });
+  // Memoized filter for food logs on selectedDate
+  const dayFoodLogs = useMemo(() => {
+    return foodLogs.filter((item) => {
+      const itemDate =
+        item.date ||
+        (item.createdAt && typeof item.createdAt.toDate === 'function'
+          ? item.createdAt.toDate().toISOString().split('T')[0]
+          : selectedDate);
+      return itemDate === selectedDate;
+    });
+  }, [foodLogs, selectedDate]);
+
+  // Macro Summary for selectedDate
+  const totalNutrients = useMemo(() => {
+    return dayFoodLogs.reduce(
+      (acc, curr) => ({
+        calories: acc.calories + (curr.calories || 0),
+        protein: acc.protein + (curr.proteinG || 0),
+        carbs: acc.carbs + (curr.carbsG || 0),
+        fat: acc.fat + (curr.fatG || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+  }, [dayFoodLogs]);
 
   const handleAutoEstimate = async () => {
     if (!foodName.trim()) return;
     setEstimating(true);
+    setManualError(null);
     try {
       const res = await fetch('/api/estimate-food', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ foodName, quantity: portion }),
+        body: JSON.stringify({ foodName: foodName.trim(), quantity: portion.trim() }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -69,11 +94,11 @@ export function FoodView({
         setCarbs(String(data.carbs_g || ''));
         setFat(String(data.fat_g || ''));
       } else {
-        alert(data.error || 'Failed to estimate macros');
+        setManualError(data.error || 'Failed to estimate macros');
       }
     } catch (err) {
       console.error('Estimation error:', err);
-      alert('Failed to estimate macros');
+      setManualError('Failed to estimate macros');
     } finally {
       setEstimating(false);
     }
@@ -81,58 +106,111 @@ export function FoodView({
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!foodName.trim()) return;
-    setSubmitting(true);
+    setManualError(null);
+    setSyncError(null);
+
+    const rawItem = {
+      mealType,
+      foodName: foodName.trim(),
+      portion: portion.trim() || '1 serving',
+      calories: parseInt(calories) || 0,
+      proteinG: parseFloat(protein) || 0,
+      carbsG: parseFloat(carbs) || 0,
+      fatG: parseFloat(fat) || 0,
+      source: 'manual' as const,
+      userConfirmed: true,
+    };
+
+    const validation = FoodLogItemSchema.safeParse(rawItem);
+    if (!validation.success) {
+      setManualError(getZodErrorMessage(validation.error));
+      return;
+    }
+
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const optimisticItem: FoodLogItem = {
+      id: tempId,
+      date: selectedDate,
+      ...validation.data,
+      createdAt: new Date(),
+    };
+
+    // 0ms Optimistic UI update
+    if (setFoodLogs) {
+      setFoodLogs((prev) => [optimisticItem, ...prev]);
+    }
+
+    // Reset inputs immediately
+    setFoodName('');
+    setPortion('1 serving');
+    setCalories('');
+    setProtein('');
+    setCarbs('');
+    setFat('');
+    setIsManualOpen(false);
+
+    // Sync to Firestore in background
     try {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        await addDoc(collection(db, 'users', uid, 'foodLogs'), {
+        const docRef = await addDoc(collection(db, 'users', uid, 'foodLogs'), {
           date: selectedDate,
-          mealType,
-          foodName: foodName.trim(),
-          portion: portion.trim(),
-          calories: parseInt(calories) || 0,
-          proteinG: parseFloat(protein) || 0,
-          carbsG: parseFloat(carbs) || 0,
-          fatG: parseFloat(fat) || 0,
-          source: 'manual',
-          userConfirmed: true,
+          ...validation.data,
           createdAt: serverTimestamp(),
         });
-        setFoodName('');
-        setPortion('1 serving');
-        setCalories('');
-        setProtein('');
-        setCarbs('');
-        setFat('');
-        setIsManualOpen(false);
-        onRefresh();
+
+        // Update with real Firestore ID
+        if (setFoodLogs) {
+          setFoodLogs((prev) =>
+            prev.map((item) => (item.id === tempId ? { ...item, id: docRef.id } : item))
+          );
+        }
       }
-    } catch (err) {
-      console.error('Error adding food:', err);
-    } finally {
-      setSubmitting(false);
+    } catch (err: any) {
+      console.error('Error saving food log to Firestore:', err);
+      setSyncError('Network sync failed. Reverting item.');
+      // Rollback optimistic item
+      if (setFoodLogs) {
+        setFoodLogs((prev) => prev.filter((item) => item.id !== tempId));
+      }
     }
   };
 
-  const handleDelete = async (id?: string) => {
-    if (!id) return;
-    try {
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        await deleteDoc(doc(db, 'users', uid, 'foodLogs', id));
-        onRefresh();
+  const handleDelete = useCallback(
+    async (id?: string) => {
+      if (!id) return;
+      setSyncError(null);
+
+      // Cache snapshot for potential rollback
+      const deletedItem = foodLogs.find((f) => f.id === id);
+
+      // 0ms Optimistic removal
+      if (setFoodLogs) {
+        setFoodLogs((prev) => prev.filter((f) => f.id !== id));
       }
-    } catch (err) {
-      console.error('Error deleting food:', err);
-    }
-  };
+
+      try {
+        const uid = auth.currentUser?.uid;
+        if (uid && !id.startsWith('temp_')) {
+          await deleteDoc(doc(db, 'users', uid, 'foodLogs', id));
+        }
+      } catch (err) {
+        console.error('Error deleting food log:', err);
+        setSyncError('Failed to delete item from server. Restoring.');
+        if (deletedItem && setFoodLogs) {
+          setFoodLogs((prev) => [deletedItem, ...prev]);
+        }
+      }
+    },
+    [foodLogs, setFoodLogs]
+  );
 
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setAnalyzing(true);
+    setSyncError(null);
     const reader = new FileReader();
     reader.onload = async () => {
       const base64String = (reader.result as string).split(',')[1];
@@ -146,11 +224,11 @@ export function FoodView({
         if (res.ok) {
           setAiResult(data);
         } else {
-          alert(data.error || 'Failed to analyze photo');
+          setSyncError(data.error || 'Failed to analyze photo');
         }
       } catch (err) {
         console.error('Photo analysis error:', err);
-        alert('Failed to analyze photo');
+        setSyncError('Failed to analyze photo');
       } finally {
         setAnalyzing(false);
       }
@@ -161,21 +239,32 @@ export function FoodView({
   const handleTextExtract = async () => {
     if (!textInput.trim()) return;
     setAnalyzing(true);
+    setSyncError(null);
     try {
       const res = await fetch('/api/extract-food-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textInput }),
+        body: JSON.stringify({ text: textInput.trim() }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setAiResult({ meal: 'lunch', foods: data.entries.map((e: any) => ({ name: e.food_name, estimated_portion: e.portion, calories: e.calories, protein_g: e.protein_g, carbs_g: e.carbs_g, fat_g: e.fat_g })) });
+      if (res.ok && data.entries) {
+        setAiResult({
+          meal: 'lunch',
+          foods: data.entries.map((e: any) => ({
+            name: e.food_name,
+            estimated_portion: e.portion,
+            calories: e.calories,
+            protein_g: e.protein_g,
+            carbs_g: e.carbs_g,
+            fat_g: e.fat_g,
+          })),
+        });
       } else {
-        alert(data.error || 'Failed to extract food');
+        setSyncError(data.error || 'Failed to extract food items');
       }
     } catch (err) {
       console.error('Text extraction error:', err);
-      alert('Failed to extract food');
+      setSyncError('Failed to extract food items');
     } finally {
       setAnalyzing(false);
     }
@@ -184,34 +273,50 @@ export function FoodView({
   const handleConfirmAiEntries = async () => {
     if (!aiResult || !aiResult.foods) return;
     setSubmitting(true);
+    setSyncError(null);
+
+    const newItems: FoodLogItem[] = aiResult.foods.map((item: any, idx: number) => ({
+      id: `temp_ai_${Date.now()}_${idx}`,
+      date: selectedDate,
+      mealType: (aiResult.meal || 'lunch').toLowerCase(),
+      foodName: item.name,
+      portion: item.estimated_portion || '1 serving',
+      calories: item.calories || 0,
+      proteinG: item.protein_g || 0,
+      carbsG: item.carbs_g || 0,
+      fatG: item.fat_g || 0,
+      source: 'photo' as const,
+      estimatedByAI: true,
+      confidence: aiResult.confidence || 0.8,
+      userConfirmed: true,
+      createdAt: new Date(),
+    }));
+
+    // Optimistic state addition
+    if (setFoodLogs) {
+      setFoodLogs((prev) => [...newItems, ...prev]);
+    }
+
+    setAiResult(null);
+    setIsScanOpen(false);
+    setIsVoiceOpen(false);
+    setTextInput('');
+
     try {
       const uid = auth.currentUser?.uid;
       if (uid) {
-        for (const item of aiResult.foods) {
+        for (const item of newItems) {
+          const { id, ...saveData } = item;
           await addDoc(collection(db, 'users', uid, 'foodLogs'), {
-            date: selectedDate,
-            mealType: (aiResult.meal || 'lunch').toLowerCase(),
-            foodName: item.name,
-            portion: item.estimated_portion || '1 serving',
-            calories: item.calories || 0,
-            proteinG: item.protein_g || 0,
-            carbsG: item.carbs_g || 0,
-            fatG: item.fat_g || 0,
-            source: 'photo',
-            estimatedByAI: true,
-            confidence: aiResult.confidence || 0.8,
-            userConfirmed: true,
+            ...saveData,
             createdAt: serverTimestamp(),
           });
         }
-        setAiResult(null);
-        setIsScanOpen(false);
-        setIsVoiceOpen(false);
-        setTextInput('');
         onRefresh();
       }
     } catch (err) {
       console.error('Error saving AI food entries:', err);
+      setSyncError('Failed to sync all AI entries to server');
     } finally {
       setSubmitting(false);
     }
@@ -221,10 +326,20 @@ export function FoodView({
     <div className="space-y-6 pb-24">
       <DateNavigator selectedDate={selectedDate} onChangeDate={onChangeDate} />
 
+      {syncError && (
+        <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          <span>{syncError}</span>
+        </div>
+      )}
+
+      {/* Header & Quick Action Buttons */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-extrabold text-white">Food Tracker</h2>
-          <p className="text-xs text-slate-400">Log meals for selected date.</p>
+          <p className="text-xs text-slate-400">
+            {totalNutrients.calories} kcal logged · P: {Math.round(totalNutrients.protein)}g · C: {Math.round(totalNutrients.carbs)}g · F: {Math.round(totalNutrients.fat)}g
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -258,7 +373,7 @@ export function FoodView({
           </div>
         ) : (
           dayFoodLogs.map((item) => (
-            <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+            <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-slate-700 transition-all">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-emerald-400 font-bold capitalize">
                   {item.mealType[0]}
@@ -285,6 +400,7 @@ export function FoodView({
                 <button
                   onClick={() => handleDelete(item.id)}
                   className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                  title="Delete food entry"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -304,6 +420,13 @@ export function FoodView({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {manualError && (
+              <div className="mb-4 p-3 bg-red-950/60 border border-red-800/80 rounded-2xl flex items-center gap-2 text-xs text-red-300">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{manualError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div>
@@ -348,10 +471,10 @@ export function FoodView({
                 type="button"
                 onClick={handleAutoEstimate}
                 disabled={!foodName.trim() || estimating}
-                className="w-full h-11 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-semibold text-xs flex items-center justify-center gap-2 hover:bg-emerald-600/30 transition-all disabled:opacity-50"
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs text-emerald-400 font-semibold flex items-center justify-center gap-1.5 transition-colors"
               >
                 {estimating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {estimating ? 'Calculating with Gemini...' : '✨ Auto-Fill Macros with Gemini'}
+                {estimating ? 'Estimating...' : '✨ Estimate Calories & Macros with AI'}
               </button>
 
               <div className="grid grid-cols-2 gap-3 pt-2">
@@ -403,170 +526,163 @@ export function FoodView({
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 mt-6 shadow-lg shadow-emerald-950"
+                className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-950"
               >
-                <Plus className="w-4 h-4" />
-                {submitting ? 'Saving...' : 'Add Food Entry'}
+                <Plus className="w-4 h-4" /> Save Food Entry
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Scan Photo Modal */}
+      {/* Photo Scan Modal */}
       {isScanOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-slate-100 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-blue-400">
-                <Camera className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-white">Gemini Food Photo Scan ({selectedDate})</h3>
-              </div>
-              <button onClick={() => { setIsScanOpen(false); setAiResult(null); }} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-400" />
+                Scan Food Photo
+              </h3>
+              <button
+                onClick={() => {
+                  setIsScanOpen(false);
+                  setAiResult(null);
+                }}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {!aiResult && !analyzing && (
-              <div className="space-y-4 text-center py-8">
-                <div className="w-20 h-20 rounded-3xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center mx-auto mb-4">
-                  <Camera className="w-8 h-8" />
-                </div>
-                <p className="text-sm text-slate-300">Take a photo of your meal or upload an image for instant AI calorie & macro estimation.</p>
-                <label className="inline-flex items-center justify-center w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm cursor-pointer shadow-lg shadow-blue-950">
-                  <Camera className="w-4 h-4 mr-2" /> Take / Upload Photo
-                  <input type="file" accept="image/*" capture="environment" onChange={handlePhotoCapture} className="hidden" />
+            {!aiResult ? (
+              <div className="space-y-4 text-center py-6">
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoCapture}
+                  disabled={analyzing}
+                  id="foodPhotoInput"
+                  className="hidden"
+                />
+                <label
+                  htmlFor="foodPhotoInput"
+                  className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-3xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors block"
+                >
+                  {analyzing ? (
+                    <Loader2 className="w-10 h-10 text-blue-400 animate-spin mb-3" />
+                  ) : (
+                    <Camera className="w-10 h-10 text-blue-400 mb-3" />
+                  )}
+                  <p className="font-semibold text-sm text-slate-200">
+                    {analyzing ? 'Analyzing with Gemini...' : 'Take Photo or Choose Image'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">Automatic item, calorie & macro detection</p>
                 </label>
               </div>
-            )}
-
-            {analyzing && (
-              <div className="text-center py-16 space-y-4">
-                <Loader2 className="w-10 h-10 text-blue-400 animate-spin mx-auto" />
-                <p className="text-sm font-medium text-slate-200">Gemini is analyzing your food photo...</p>
-              </div>
-            )}
-
-            {aiResult && (
+            ) : (
               <div className="space-y-4">
-                <div className="p-4 bg-slate-800/80 rounded-2xl border border-slate-700">
-                  <div className="flex justify-between items-center mb-3">
-                    <span className="text-xs uppercase font-semibold text-blue-400">Meal: {aiResult.meal}</span>
-                    <span className="text-xs text-slate-400">Confidence: {Math.round((aiResult.confidence || 0.8) * 100)}%</span>
+                <div className="p-3 bg-blue-950/60 border border-blue-800/80 rounded-2xl">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-semibold uppercase text-blue-400">{aiResult.meal || 'Detected Meal'}</span>
+                    <span className="text-xs font-bold text-white tabular-nums">{aiResult.total_calories} kcal</span>
                   </div>
-                  <div className="space-y-2">
-                    {aiResult.foods?.map((f: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-700/50 pb-2">
-                        <div>
-                          <p className="font-semibold text-white">{f.name}</p>
-                          <p className="text-slate-400">{f.estimated_portion} · P: {f.protein_g}g · C: {f.carbs_g}g · F: {f.fat_g}g</p>
-                        </div>
-                        <span className="font-bold text-emerald-400">{f.calories} kcal</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between items-center pt-3 font-bold text-sm text-white">
-                    <span>Total Estimated Calories</span>
-                    <span className="text-emerald-400">{aiResult.total_calories} kcal</span>
-                  </div>
+                  <p className="text-xs text-slate-300">Confidence: {Math.round((aiResult.confidence || 0.8) * 100)}%</p>
                 </div>
 
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setAiResult(null)}
-                    className="flex-1 h-12 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm hover:bg-slate-700"
-                  >
-                    Retake
-                  </button>
-                  <button
-                    onClick={handleConfirmAiEntries}
-                    disabled={submitting}
-                    className="flex-1 h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
-                  >
-                    <Check className="w-4 h-4" />
-                    {submitting ? 'Saving...' : 'Confirm & Add'}
-                  </button>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-400">Identified Foods:</p>
+                  {aiResult.foods?.map((f: any, idx: number) => (
+                    <div key={idx} className="bg-slate-800 p-3 rounded-xl flex justify-between items-center text-xs">
+                      <div>
+                        <p className="font-bold text-white">{f.name}</p>
+                        <p className="text-slate-400">{f.estimated_portion} · P:{f.protein_g}g C:{f.carbs_g}g F:{f.fat_g}g</p>
+                      </div>
+                      <span className="font-bold text-emerald-400 tabular-nums">{f.calories} kcal</span>
+                    </div>
+                  ))}
                 </div>
+
+                <button
+                  onClick={handleConfirmAiEntries}
+                  disabled={submitting}
+                  className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
+                >
+                  <Check className="w-5 h-5" />
+                  {submitting ? 'Adding...' : 'Confirm & Log All Foods'}
+                </button>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Voice / Text AI Modal */}
+      {/* Voice / Text Assistant Modal */}
       {isVoiceOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 text-slate-100 shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-purple-400">
-                <Mic className="w-5 h-5" />
-                <h3 className="text-lg font-bold text-white">Gemini Voice / Text Logging ({selectedDate})</h3>
-              </div>
-              <button onClick={() => { setIsVoiceOpen(false); setAiResult(null); setTextInput(''); }} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Mic className="w-5 h-5 text-purple-400" />
+                Natural Voice & Text Food Logging
+              </h3>
+              <button
+                onClick={() => {
+                  setIsVoiceOpen(false);
+                  setAiResult(null);
+                }}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {!aiResult && !analyzing && (
-              <div className="space-y-4 py-4">
-                <p className="text-xs text-slate-400">Describe what you ate in natural language (e.g. "For lunch I had two chicken biriyani plates and a glass of lassi").</p>
+            {!aiResult ? (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-400">
+                  Type or dictate what you ate. AI will automatically parse portions, calories, and macros.
+                </p>
                 <textarea
                   rows={4}
-                  placeholder="Type or describe what you ate..."
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
+                  placeholder="e.g. For breakfast I had 2 boiled eggs, 1 slice of whole wheat toast with 1 tbsp peanut butter, and a black coffee."
                   className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-3 text-sm text-white focus:outline-none focus:border-purple-500"
                 />
+
                 <button
                   onClick={handleTextExtract}
-                  disabled={!textInput.trim()}
-                  className="w-full h-12 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-950 disabled:opacity-50"
+                  disabled={!textInput.trim() || analyzing}
+                  className="w-full h-12 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-950"
                 >
-                  <Sparkles className="w-4 h-4" /> Extract & Estimate Nutrition
+                  {analyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  {analyzing ? 'Extracting with Gemini...' : 'Extract & Parse Foods with Gemini'}
                 </button>
               </div>
-            )}
-
-            {analyzing && (
-              <div className="text-center py-16 space-y-4">
-                <Loader2 className="w-10 h-10 text-purple-400 animate-spin mx-auto" />
-                <p className="text-sm font-medium text-slate-200">Gemini is extracting food items...</p>
-              </div>
-            )}
-
-            {aiResult && (
+            ) : (
               <div className="space-y-4">
-                <div className="p-4 bg-slate-800/80 rounded-2xl border border-slate-700 space-y-3">
-                  <span className="text-xs uppercase font-semibold text-purple-400">Extracted Food Items</span>
-                  <div className="space-y-2">
-                    {aiResult.foods?.map((f: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-700/50 pb-2">
-                        <div>
-                          <p className="font-semibold text-white">{f.name}</p>
-                          <p className="text-slate-400">{f.estimated_portion} · P: {f.protein_g}g · C: {f.carbs_g}g · F: {f.fat_g}g</p>
-                        </div>
-                        <span className="font-bold text-emerald-400">{f.calories} kcal</span>
+                <p className="text-xs font-semibold text-slate-400">Extracted Items:</p>
+                <div className="space-y-2">
+                  {aiResult.foods?.map((f: any, idx: number) => (
+                    <div key={idx} className="bg-slate-800 p-3 rounded-xl flex justify-between items-center text-xs">
+                      <div>
+                        <p className="font-bold text-white">{f.name}</p>
+                        <p className="text-slate-400">{f.estimated_portion} · P:{f.protein_g}g C:{f.carbs_g}g F:{f.fat_g}g</p>
                       </div>
-                    ))}
-                  </div>
+                      <span className="font-bold text-emerald-400 tabular-nums">{f.calories} kcal</span>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setAiResult(null)}
-                    className="flex-1 h-12 rounded-xl bg-slate-800 text-slate-300 font-semibold text-sm hover:bg-slate-700"
-                  >
-                    Edit Description
-                  </button>
-                  <button
-                    onClick={handleConfirmAiEntries}
-                    disabled={submitting}
-                    className="flex-1 h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
-                  >
-                    <Check className="w-4 h-4" />
-                    {submitting ? 'Saving...' : 'Confirm & Add'}
-                  </button>
-                </div>
+                <button
+                  onClick={handleConfirmAiEntries}
+                  disabled={submitting}
+                  className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950"
+                >
+                  <Check className="w-5 h-5" />
+                  {submitting ? 'Adding...' : 'Confirm & Log All Foods'}
+                </button>
               </div>
             )}
           </div>
