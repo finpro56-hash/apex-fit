@@ -9,6 +9,7 @@ import { X, Save, User, Flame, Sparkles, Loader2, AlertCircle } from 'lucide-rea
 import { db, auth } from '../firebase/config';
 import { doc, setDoc } from 'firebase/firestore';
 import { UserProfileSchema, UserGoalsSchema, getZodErrorMessage } from '../lib/validation';
+import { authFetch } from '../lib/authFetch';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
 
     setCalculatingCals(true);
     try {
-      const res = await fetch('/api/calculate-nutrition-goals', {
+      const res = await authFetch('/api/calculate-nutrition-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData }),
@@ -71,7 +72,7 @@ export function ProfileModal({ isOpen, onClose, profile, goals, onSave }: Profil
 
     setCalculatingMacros(true);
     try {
-      const res = await fetch('/api/calculate-nutrition-goals', {
+      const res = await authFetch('/api/calculate-nutrition-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, calorieTarget: goalData.calorieTarget }),

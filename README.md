@@ -1,5 +1,11 @@
 # Apex Fit - Deployment Instructions
 
+## API Authentication Security
+
+All `/api/*` AI routes require a signed-in Firebase user. The client automatically includes the user's Firebase ID token in an `Authorization: Bearer <token>` header, and the server verifies it using `firebase-admin`. `FIREBASE_PROJECT_ID` (or `VITE_FIREBASE_PROJECT_ID`) must be set on Vercel so the server can verify tokens.
+
+---
+
 ## Vercel Deployment Guide
 
 1. **Import Repository**
@@ -13,6 +19,7 @@
 3. **Environment Variables**
    - In **Project Settings > Environment Variables**, add the following for **Production** and **Preview**:
      - `GEMINI_API_KEY`: Your server-side Google Gemini API key.
+     - `FIREBASE_PROJECT_ID`: (or `VITE_FIREBASE_PROJECT_ID`) Your Firebase project ID (required by server to verify auth tokens).
      - `VITE_FIREBASE_API_KEY`: Your Firebase client API key.
      - `VITE_FIREBASE_AUTH_DOMAIN`: Your Firebase Auth domain.
      - `VITE_FIREBASE_PROJECT_ID`: Your Firebase project ID.
