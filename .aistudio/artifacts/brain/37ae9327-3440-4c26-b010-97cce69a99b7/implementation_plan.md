@@ -1,76 +1,66 @@
-# Apex Fit - Environment Variables & Configuration Refactoring Plan
+# Apex Fit - App Logo & Favicon Branding Integration Plan
 
-A secure and clean refactoring of **Apex Fit**'s configuration management to move all API credentials and Firebase client configuration into `.env` and `.env.example`, while strictly isolating backend secrets (`GEMINI_API_KEY`) from client-side bundles and maintaining full compatibility with AI Studio runtime environments.
+An integration plan to set the glowing neon-green dumbbell app logo as the official brand icon across **Apex Fit**, including browser tab favicon, Progressive Web App (PWA) manifest icon, Apple touch icon, and top navigation header branding.
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following configuration patterns incorporate your selections from the interactive clarification step:
+> The following branding specifications incorporate your selections from the interactive clarification step:
 
-- **Firebase Config Initialization**: `src/firebase/config.ts` will load configuration from `import.meta.env.VITE_FIREBASE_*` variables, with a seamless fallback to `firebase-applet-config.json` so the app functions reliably in both local `.env` setups and automated sandbox environments.
-- **Firestore Instance Setup**: Initialize the Firestore instance using the designated database configuration without hardcoded sensitive defaults.
-- **Git Security**: Verify `.env` is ignored in `.gitignore` (with `!.env.example` preserved).
-
----
-
-## 1. Overview & Configuration Structure
-
-### Environment Variables Matrix
-
-| Variable Name | Target Scope | Purpose / Source |
-| :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Backend (`server.ts`) | Isolated server-side key for GoogleGenAI SDK calls |
-| `VITE_FIREBASE_API_KEY` | Frontend (`import.meta.env`) | Firebase Web API Key for client Auth & Firestore |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Frontend (`import.meta.env`) | Firebase Auth domain for Google Sign-in popup |
-| `VITE_FIREBASE_PROJECT_ID` | Frontend (`import.meta.env`) | Google Cloud Project ID |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Frontend (`import.meta.env`) | Firebase Storage Bucket URL |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Frontend (`import.meta.env`) | Cloud Messaging Sender ID |
-| `VITE_FIREBASE_APP_ID` | Frontend (`import.meta.env`) | Firebase Web Application ID |
-| `VITE_FIREBASE_FIRESTORE_DATABASE_ID` | Frontend (`import.meta.env`) | Firestore Database ID instance |
+- **Header Navbar Integration**: The new dumbbell logo will be displayed in the top navigation bar next to "Apex Fit" with a **compact 32×32 pixel (`w-8 h-8`) rounded-xl squircle container**.
+- **Login Screen**: The login screen will retain its clean, focused layout as confirmed.
+- **Web Favicon & Manifest**: The icon will be set as the official favicon (`/icon.png`, `/icon.svg`) and PWA web app manifest icon with theme color `#0d1f1f`.
 
 ---
 
-## 2. Technical Architecture & File Layout
+## 1. Scope & Asset Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                           .env                              │
-│  • GEMINI_API_KEY="..." (Server-side ONLY)                  │
-│  • VITE_FIREBASE_API_KEY="..."                              │
-│  • VITE_FIREBASE_AUTH_DOMAIN="..."                          │
-│  • VITE_FIREBASE_PROJECT_ID="..."                           │
-│  • VITE_FIREBASE_STORAGE_BUCKET="..."                       │
-│  • VITE_FIREBASE_MESSAGING_SENDER_ID="..."                  │
-│  • VITE_FIREBASE_APP_ID="..."                               │
-│  • VITE_FIREBASE_FIRESTORE_DATABASE_ID="..."                │
+│                     App Branding Assets                     │
+│                                                             │
+│   • public/icon.png (High-Res 512x512 PNG)                  │
+│   • public/icon.svg (Crisp Vector SVG Favicon)              │
+│   • public/manifest.json (PWA Icon Config + #0d1f1f Theme)  │
+│   • index.html (<link rel="icon"> & Apple Touch Icon)       │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-               ┌───────────────┴───────────────┐
-               ▼                               ▼
-┌─────────────────────────────┐ ┌─────────────────────────────┐
-│    Backend: server.ts       │ │   Frontend: config.ts       │
-│  process.env.GEMINI_API_KEY │ │ import.meta.env.VITE_...    │
-│  (Never exposed to client)  │ │ (Safe client Firebase init) │
-└─────────────────────────────┘ └─────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Top Navigation Header (Navbar.tsx)             │
+│                                                             │
+│   [ (🟢 Dumbbell Icon 32x32)  Apex Fit ]   [ Profile 👤 ]   │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 2. Technical Details & Component Updates
+
+1. **Favicon & Web Manifest (`index.html` & `public/manifest.json`)**:
+   - Update `index.html` `<head>` tags:
+     - `<link rel="icon" type="image/png" href="/icon.png" />`
+     - `<link rel="icon" type="image/svg+xml" href="/icon.svg" />`
+     - `<link rel="apple-touch-icon" href="/icon.png" />`
+     - `<meta name="theme-color" content="#0d1f1f" />`
+   - Update `public/manifest.json` with icons array (sizes: 192x192, 512x512, any), background_color `#090d16`, and theme_color `#0d1f1f`.
+
+2. **Top Navigation Header (`src/components/Navbar.tsx`)**:
+   - Replace the generic Dumbbell lucide icon in the brand zone with the custom brand logo image (`/icon.png` or vector `/icon.svg`).
+   - Dimension: `w-8 h-8 rounded-xl object-contain shadow-md shadow-emerald-950/50`.
+   - Accessible `alt="Apex Fit Logo"` with graceful fallback.
 
 ---
 
 ## Implementation Steps
 
-1. **Create `.env` & Update `.env.example`**:
-   - Populate `.env` with current project Firebase credentials (prefixed with `VITE_FIREBASE_`) and `GEMINI_API_KEY`.
-   - Update `.env.example` with clear documentation and placeholders for all variables.
-
-2. **Refactor Firebase Config (`src/firebase/config.ts`)**:
-   - Load Firebase configuration using `import.meta.env.VITE_FIREBASE_*`.
-   - Provide fallback to `firebase-applet-config.json` when `VITE_` variables are omitted.
-   - Cleanly export `app`, `auth`, `db`, and `googleProvider`.
-
-3. **Verify Git Ignore (`.gitignore`)**:
-   - Ensure `.env*` and `!.env.example` prevent tracking of actual secrets while keeping the example template in version control.
-
+1. **Generate and Save App Icon Assets**:
+   - Create `public/icon.svg` and `public/icon.png` replicating the glowing green dumbbell inside the dark teal squircle container.
+2. **Update `index.html` and `public/manifest.json`**:
+   - Update `<head>` links and PWA manifest icon entries and theme colors.
+3. **Update `src/components/Navbar.tsx`**:
+   - Render the 32x32 compact brand logo in the top bar header.
 4. **Verification**:
-   - Run `compile_applet` and `lint_applet` to confirm build integrity.
+   - Run `compile_applet` and `lint_applet` to verify clean build.
