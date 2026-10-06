@@ -1,56 +1,32 @@
-# Vercel Serverless Deployment Fix Plan
+# Favicon Update Plan
 
-A focused configuration and export refactoring to ensure AI API endpoints operate seamlessly when hosted on Vercel as a Serverless Express function.
+A straightforward update to set the custom green dumbbell SVG design as the official application favicon for **Apex Fit**.
 
 ---
 
 ## 1. Scope of Work
 
-1. **`vercel.json` Update**:
-   Replace contents with standard Serverless Express rewrites and function limits:
-   ```json
-   {
-     "functions": {
-       "server.ts": {
-         "memory": 1024,
-         "maxDuration": 10
-       }
-     },
-     "rewrites": [
-       {
-         "source": "/api/(.*)",
-         "destination": "/server.ts"
-       },
-       {
-         "source": "/(.*)",
-         "destination": "/index.html"
-       }
-     ]
-   }
-   ```
+1. **Favicon Asset Creation**:
+   - Save the provided SVG icon to `/public/favicon.svg`.
 
-2. **`server.ts` Express App Export**:
-   - Refactor `server.ts` to instantiate `app = express()` at top-level scope.
-   - Attach all middleware (Helmet, Rate Limiter, JSON body parsing) and API routes (`/api/*`).
-   - Conditionally mount Vite dev middleware and start local listener when not in Vercel production mode.
-   - Export `app` as default (`export default app;`) for Vercel Serverless Function execution.
+2. **HTML Entry Point Linking**:
+   - Add `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />` inside the `<head>` tag of `index.html`.
 
-3. **Preservation**:
-   - Keep all routes, security headers, rate limiters, Zod schemas, and frontend components intact.
+3. **Strict Non-Interference**:
+   - Make zero changes to any existing UI components, styling, routing, application logic, or database configurations.
 
 ---
 
 ## Technical Architecture
 
 ```
-Client / Vercel Edge  ───► /api/*  ───► server.ts (export default app)
-                      ───► /*      ───► /index.html (Vite SPA)
+/public/favicon.svg  ──────►  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />  (index.html)
 ```
 
 ---
 
 ## Implementation Steps
 
-1. Update `vercel.json` with `functions` and `rewrites` configuration.
-2. Refactor `server.ts` to export `app` as default.
-3. Test compilation and linting.
+1. Create `/public/favicon.svg` with the exact SVG markup supplied.
+2. Update `index.html` to include the favicon link tag.
+3. Verify compilation and linting.
