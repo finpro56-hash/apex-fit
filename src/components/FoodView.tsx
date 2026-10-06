@@ -10,6 +10,7 @@ import { db, auth } from '../firebase/config';
 import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { DateNavigator } from './DateNavigator';
 import { FoodLogItemSchema, getZodErrorMessage } from '../lib/validation';
+import { authFetch } from '../lib/authFetch';
 
 interface FoodViewProps {
   foodLogs: FoodLogItem[];
@@ -82,7 +83,7 @@ export function FoodView({
     setEstimating(true);
     setManualError(null);
     try {
-      const res = await fetch('/api/estimate-food', {
+      const res = await authFetch('/api/estimate-food', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ foodName: foodName.trim(), quantity: portion.trim() }),
@@ -215,7 +216,7 @@ export function FoodView({
     reader.onload = async () => {
       const base64String = (reader.result as string).split(',')[1];
       try {
-        const res = await fetch('/api/analyze-food-photo', {
+        const res = await authFetch('/api/analyze-food-photo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imageBase64: base64String, mimeType: file.type }),
@@ -241,7 +242,7 @@ export function FoodView({
     setAnalyzing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/extract-food-text', {
+      const res = await authFetch('/api/extract-food-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: textInput.trim() }),

@@ -17,6 +17,8 @@ import {
   AiChatRequestSchema,
 } from '../src/lib/validation.js';
 
+import { requireAuth } from './auth.js';
+
 let hasWarnedApiKey = false;
 
 export function createApp() {
@@ -71,6 +73,7 @@ export function createApp() {
     message: { error: 'Too many requests from this IP, please try again in 15 minutes.' },
   });
   app.use('/api/', apiLimiter);
+  app.use('/api/', requireAuth);
 
   // API Endpoint: Analyze Food Photo
   app.post('/api/analyze-food-photo', async (req, res) => {
