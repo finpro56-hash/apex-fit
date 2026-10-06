@@ -52,6 +52,9 @@ async function generateWithFallback(contents: any, config?: any) {
 async function startServer() {
   const app = express();
 
+  // Enable 'trust proxy' for reverse proxy environments (Google Cloud Run, Vercel, Nginx)
+  app.set('trust proxy', 1);
+
   // 1. Security Headers via Helmet (configured for SPA dev mode)
   app.use(
     helmet({
@@ -68,6 +71,7 @@ async function startServer() {
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
     message: { error: 'Too many requests from this IP, please try again in 15 minutes.' },
   });
   app.use('/api/', apiLimiter);
