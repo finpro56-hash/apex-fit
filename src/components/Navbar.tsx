@@ -28,8 +28,8 @@ export function Navbar({ activeTab, setActiveTab, onOpenProfile, userEmail }: Na
       {/* Top Bar */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold shadow-md shadow-emerald-950">
-            <Dumbbell className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold">
+            A
           </div>
           <span className="text-base font-bold tracking-tight text-white">Apex Fit</span>
         </div>
