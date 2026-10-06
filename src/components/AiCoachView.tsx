@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { ChatMessage, FoodLogItem, WorkoutSession, UserGoals, UserProfile } from '../types';
 import { Bot, Send, Sparkles, User, Loader2 } from 'lucide-react';
+import { authFetch } from '../lib/authFetch';
 
 interface AiCoachViewProps {
   foodLogs: FoodLogItem[];
@@ -50,7 +51,7 @@ export function AiCoachView({ foodLogs, sessions, goals, profile }: AiCoachViewP
         recentWorkouts: sessions.slice(0, 5),
       };
 
-      const res = await fetch('/api/ai-chat', {
+      const res = await authFetch('/api/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsgText, context }),

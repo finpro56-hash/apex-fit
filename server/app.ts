@@ -7,6 +7,7 @@ import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
+import { requireAuth } from './auth.js';
 import {
   sanitizeString,
   getZodErrorMessage,
@@ -71,6 +72,7 @@ export function createApp() {
     message: { error: 'Too many requests from this IP, please try again in 15 minutes.' },
   });
   app.use('/api/', apiLimiter);
+  app.use('/api/', requireAuth);
 
   // API Endpoint: Analyze Food Photo
   app.post('/api/analyze-food-photo', async (req, res) => {
