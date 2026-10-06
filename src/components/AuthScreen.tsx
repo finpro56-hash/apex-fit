@@ -27,9 +27,12 @@ export function AuthScreen() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-6 sm:p-12 selection:bg-emerald-500 selection:text-white">
       <div className="max-w-md mx-auto w-full pt-12 flex flex-col items-center text-center">
-        <div className="w-16 h-16 rounded-3xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-6 shadow-2xl shadow-emerald-950 shrink-0">
-          <Dumbbell className="w-8 h-8 text-emerald-400 shrink-0" />
-        </div>
+        <img
+          src="/src/assets/images/apex_fit_logo_1791253289955.jpg"
+          alt="Apex Fit Logo"
+          className="w-16 h-16 rounded-3xl object-cover border border-emerald-500/30 mb-6 shadow-2xl shadow-emerald-950/50"
+          referrerPolicy="no-referrer"
+        />
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white mb-3">
           Apex Fit
         </h1>

@@ -6,25 +6,24 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import fallbackConfig from '../../firebase-applet-config.json';
 
-// Enforce loading Firebase credentials strictly from environment variables for data protection
+// Initialize Firebase configuration using VITE_ environment variables with fallback
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || fallbackConfig.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || fallbackConfig.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || fallbackConfig.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || fallbackConfig.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || fallbackConfig.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || fallbackConfig.appId,
 };
 
-const databaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || undefined;
+const databaseId =
+  import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID ||
+  fallbackConfig.firestoreDatabaseId ||
+  undefined;
 
-// Validate that required Firebase credentials exist in environment variables
-if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-  console.error('Missing required VITE_FIREBASE_* environment variables in .env');
-}
-
-// Initialize app singleton strictly from env config
+// Initialize app singleton
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
