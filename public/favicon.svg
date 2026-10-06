@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!-- Dark Slate Background Canvas -->
+  <rect width="64" height="64" rx="16" fill="#09090b" />
+  
+  <!-- Emerald Squircle Container matching AuthScreen logo -->
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#064e3b" fill-opacity="0.35" stroke="#059669" stroke-width="2" stroke-opacity="0.5" />
+  
+  <!-- Dumbbell Icon Group centered -->
+  <g transform="translate(12, 12)" stroke="#34d399" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="m14.4 14.4-4.8-4.8" />
+    <path d="m18.6 9.6-4.2 4.8" />
+    <path d="m21.6 8.4-3.2 3.2" />
+    <path d="m12.4 21.6-3.2-3.2" />
+    <path d="M3 21a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2z" />
+    <path d="M21 3a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="m15 9-6 6" />
+    <path d="M9 15 3.6 20.4" />
+    <path d="M20.4 3.6 15 9" />
+  </g>
+</svg>
